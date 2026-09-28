@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Next.js and build output
+.next/
+out/
+dist/
+build/
+
+# Local runtime data
+models/*
+!models/.gitkeep
+data/
+tmp/
+temp/
+logs/
+*.log
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local BMAD scratch/review artifacts are kept only when intentionally tracked.
