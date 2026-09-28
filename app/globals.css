@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --surface-base: #0b1016;
+  --surface-raised: #121a23;
+  --surface-elevated: #192532;
+  --foreground: #f4f7fa;
+  --muted-foreground: #aab8c5;
+  --border: #2a3b4a;
+  --primary: #35d6c2;
+  --primary-hover: #62e5d5;
+  --primary-foreground: #06211f;
+  --secondary: #9b8cff;
+  --ring: #62e5d5;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --surface-base: #f4f7f8;
+    --surface-raised: #ffffff;
+    --surface-elevated: #eaf0f2;
+    --foreground: #10202b;
+    --muted-foreground: #526574;
+    --border: #cad6dd;
+    --primary: #087f73;
+    --primary-hover: #0a9a8b;
+    --primary-foreground: #ffffff;
+    --secondary: #6658d4;
+    --ring: #087f73;
+  }
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--surface-base); }
+body { min-height: 100vh; margin: 0; background: var(--surface-base); color: var(--foreground); font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
+a { color: inherit; text-decoration: none; }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
