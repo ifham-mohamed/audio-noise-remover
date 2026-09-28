@@ -146,6 +146,8 @@ Settings uses grouped cards:
 
 Diagnostics is readable without technical expertise. It presents `Ready`, `Needs attention`, or `Unavailable`, then a short explanation and an optional details disclosure. A copy-diagnostics action excludes media content and secrets.
 
+Output defaults are explicit: 48 kHz WAV PCM 24-bit for audio, source-container video with AAC 192 kbps audio when supported, and MP4/H.264/AAC fallback when required. Successful outputs remain until the user removes them; previews older than 7 days are eligible for automatic cleanup; history metadata remains until the user clears it. Destination selection uses File System Access API when available and otherwise uses browser save/download plus Copy output path.
+
 ## State Patterns
 
 | State | Surface | Treatment |

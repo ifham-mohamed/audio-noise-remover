@@ -6,7 +6,7 @@ This companion turns the kernel into the minimum implementation contract. It fol
 
 The local Next.js UI exposes four primary areas: intake, enhancement editor, active-job/preview feedback, and history/settings. Intake supports MP3, WAV, M4A, FLAC, MP4, MOV, and MKV. Video inputs use FFmpeg to extract the selected/default audio stream; output media is chosen through an explicit output profile rather than inferred by UI code.
 
-The speech MVP exposes independent controls for noise removal, voice clarity, loudness normalization, and echo/reverb reduction. Each control has an enabled state, validated parameters, capability/availability state, and an accessible explanation. Defaults are explicit and reviewable. The UI must show local-only processing, model/FFmpeg availability, storage health, and output overwrite warnings.
+The speech MVP exposes independent controls for noise removal, voice clarity, loudness normalization, and echo/reverb reduction. Each control has an enabled state, validated parameters, capability/availability state, and an accessible explanation. Defaults are explicit and reviewable. The first CPU-safe noise-removal adapter targets a DeepFilterNet2-derived ONNX model; release requires median STOI improvement ≥0.03, median SI-SDR improvement ≥3 dB, no more than 0.10 PESQ regression on clean-speech fixtures, zero introduced clipping, and loudness within 1 LU of the configured target. The UI must show local-only processing, model/FFmpeg availability, storage health, and output overwrite warnings.
 
 ## Boundary contracts
 
@@ -72,6 +72,8 @@ Each stage declares its input/output format, parameters schema, capability requi
 ## Preview, history, and privacy
 
 Preview is a bounded derived artifact using the same normalized profile and stage order as final processing. It is labeled as preview and cannot satisfy final-output success. History is local and append/update-only through coordinator commands. Structured logs include request/job IDs and timings, never media bytes, raw audio, complete file contents, or secrets. Cleanup controls are explicit and must not delete the immutable source.
+
+Default audio output is 48 kHz WAV PCM 24-bit, with FLAC, MP3 192 kbps, and M4A/AAC 192 kbps alternatives. Video output preserves the source container and video streams when possible and replaces the selected audio with AAC 192 kbps; MP4 with H.264/AAC is the fallback when required by the output profile. Successful outputs remain until user removal, previews older than 7 days are eligible for automatic cleanup, and history metadata remains until user-cleared. File System Access API destination selection/reveal is preferred; unsupported browsers use save/download plus Copy output path.
 
 ## Verification contract
 

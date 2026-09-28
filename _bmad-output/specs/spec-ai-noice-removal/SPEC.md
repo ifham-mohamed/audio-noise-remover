@@ -56,6 +56,11 @@ People need a trustworthy way to make speech recordings and speech-bearing video
 - Jobs are the unit of work and the coordinator is the only writer of job state. Lifecycle states are `queued`, `running`, `cancelling`, `cancelled`, `succeeded`, and `failed`.
 - FFmpeg is the only media demux/decode/encode boundary. The internal audio pipeline uses canonical PCM; model adapters own preprocessing, inference, and postprocessing.
 - CPU execution is always supported. Optional acceleration and platform features are capability-detected and must degrade to a documented CPU-safe path.
+- The first CPU-safe denoising adapter targets a DeepFilterNet2-derived model converted to ONNX, subject to fixture quality gates and Apache-2.0/license verification before release.
+- Speech quality gates are median STOI improvement ≥0.03 on noisy fixtures, median SI-SDR improvement ≥3 dB, no more than 0.10 PESQ regression on clean-speech fixtures, zero introduced clipping, and loudness normalization within 1 LU of the configured target.
+- Default audio output is 48 kHz WAV PCM 24-bit; FLAC, MP3 192 kbps, and M4A/AAC 192 kbps are explicit alternatives. Video preserves the source container and video streams when possible and replaces selected audio with AAC 192 kbps, falling back to MP4/H.264/AAC only when required.
+- Successful outputs remain until user removal; previews older than 7 days are eligible for automatic cleanup; history metadata remains until user-cleared. The policy is configurable through Settings.
+- Destination selection uses the File System Access API and folder reveal when supported; otherwise the product uses the browser save/download flow and Copy output path without requiring arbitrary local path access.
 - Shared TypeScript/Zod contracts and stable error envelopes govern browser/server, jobs, stages, persistence, capabilities, and diagnostics.
 - The first implementation is one repository and one local web product boundary using the architecture spine's Next.js, worker, adapter, and local-store structure.
 
@@ -76,9 +81,4 @@ On a supported Windows, macOS, or Linux machine, a user can select a speech reco
 - The first release is a local browser workflow rather than a packaged desktop application.
 - Exact denoising/enhancement models are selected after fixture-based quality evaluation and license review.
 - A file-backed local history store is sufficient until history volume or concurrency proves otherwise.
-
-## Open Questions
-
-- Which model family and objective quality thresholds must pass the fixture evaluation before release?
-- Which output codec/container defaults and browser playback constraints should apply per input type?
-- What retention and user-controlled cleanup policy should govern history, previews, and generated outputs?
+- DeepFilterNet2-derived ONNX conversion and the quality thresholds above are achievable for the first CPU-safe speech release; release is blocked if fixture evaluation or license verification fails.
