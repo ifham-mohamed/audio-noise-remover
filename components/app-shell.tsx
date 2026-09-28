@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { AudioLines, ChevronRight, Clock3, FileAudio, History, LockKeyhole, Menu, Settings2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { apiEnvelopeSchema } from "@/shared/contracts/capabilities";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -40,23 +42,36 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function LocalTrustBadge() {
+function LocalTrustBadge({ readiness }: { readiness: "checking" | "ready" | "attention" }) {
+  const needsAttention = readiness === "attention";
+  const label = readiness === "checking" ? "Checking local readiness" : needsAttention ? "Local setup needs attention" : "On this device";
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" aria-label="On this device">
-          <Badge className="border-[color-mix(in_srgb,var(--primary)_35%,transparent)] bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]">
+        <button type="button" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" aria-label={label}>
+          <Badge className={cn("border-[color-mix(in_srgb,var(--primary)_35%,transparent)] bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]", needsAttention && "border-amber-300/30 bg-amber-300/10 text-amber-200")}>
             <LockKeyhole className="size-3.5" aria-hidden="true" />
-            <span>On this device</span>
+            <span>{label}</span>
           </Badge>
         </button>
       </TooltipTrigger>
-      <TooltipContent>Processing happens on this device. Your media, outputs, history, and logs stay local.</TooltipContent>
+      <TooltipContent>{readiness === "checking" ? "Checking this device’s local processing readiness." : needsAttention ? <span>Local setup needs attention. <Link href="/settings#diagnostics" className="font-medium text-[var(--primary)] underline">Open diagnostics</Link></span> : "Processing happens on this device. Your media, outputs, history, and logs stay local."}</TooltipContent>
     </Tooltip>
   );
 }
 
 export function AppShell({ children, activeJob }: { children: React.ReactNode; activeJob?: ActiveJobSummary }) {
+  const [readiness, setReadiness] = useState<"checking" | "ready" | "attention">("checking");
+  useEffect(() => {
+    fetch("/api/capabilities", { cache: "no-store" }).then(async (response) => {
+      const envelope = apiEnvelopeSchema.parse(await response.json());
+      if (!response.ok || !envelope.data) throw new Error(envelope.error?.message ?? "Local readiness checks failed.");
+      return envelope.data;
+    }).then((data) => {
+      const items = data.items ?? [];
+      setReadiness(items.some((item) => item.status === "attention" || item.status === "unavailable") ? "attention" : "ready");
+    }).catch(() => setReadiness("attention"));
+  }, []);
   return (
     <TooltipProvider delayDuration={300}>
       <div className="min-h-screen bg-[var(--surface-base)]">
@@ -67,7 +82,7 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
           <ActiveJob activeJob={activeJob} />
           <div className="mt-auto space-y-4">
             <Separator />
-            <LocalTrustBadge />
+            <LocalTrustBadge readiness={readiness} />
             <p className="text-xs leading-5 text-[var(--muted-foreground)]">Clear speech, kept private.</p>
           </div>
         </aside>
@@ -83,12 +98,12 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
                   <ShellBrand />
                   <div className="mt-8"><Navigation /></div>
                   <ActiveJob activeJob={activeJob} />
-                  <div className="mt-auto pt-8"><LocalTrustBadge /></div>
+                  <div className="mt-auto pt-8"><LocalTrustBadge readiness={readiness} /></div>
                 </SheetContent>
               </Sheet>
               <div className="lg:hidden"><ShellBrand compact /></div>
             </div>
-            <div className="lg:hidden"><LocalTrustBadge /></div>
+            <div className="lg:hidden"><LocalTrustBadge readiness={readiness} /></div>
           </header>
           <main id="main-content" className="flex-1 px-4 py-8 md:px-7 md:py-10 lg:px-10" tabIndex={-1}>{children}</main>
         </div>

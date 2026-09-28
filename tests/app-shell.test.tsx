@@ -16,8 +16,7 @@ describe("AppShell", () => {
     expect(view.getAllByText("New enhancement").length).toBeGreaterThan(0);
     expect(view.getByRole("link", { name: /history/i })).toBeInTheDocument();
     expect(view.getByRole("link", { name: /settings/i })).toBeInTheDocument();
-    expect(view.getAllByText("On this device").length).toBeGreaterThan(0);
-    expect(view.getAllByRole("button", { name: /on this device/i }).length).toBeGreaterThan(0);
+    expect(view.getAllByRole("button", { name: /checking local readiness|on this device|local setup needs attention/i }).length).toBeGreaterThan(0);
     expect(view.queryByText(/upload|cloud sync|remote processing/i)).not.toBeInTheDocument();
   });
 
@@ -58,5 +57,20 @@ describe("AppShell", () => {
     const styles = readFileSync("app/globals.css", "utf8");
     expect(styles).toContain("prefers-reduced-motion: reduce");
     expect(styles).toContain("transition-duration: 0.01ms");
+  });
+
+  it("reflects attention returned by the local capability endpoint", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { generatedAt: "2026-09-29T00:00:00.000Z", requestId: "request-1", runtime: { nodeVersion: "v24", os: "win32", architecture: "x64" }, items: [{ id: "ffmpeg", label: "FFmpeg", status: "unavailable", summary: "Missing", code: "FFMPEG_UNAVAILABLE" }] }, error: null, requestId: "request-1" }),
+    }));
+    const view = render(<AppShell><h1>New enhancement</h1></AppShell>);
+    expect((await view.findAllByRole("button", { name: /local setup needs attention/i })).length).toBeGreaterThan(0);
+  });
+
+  it("treats a failed capability response as attention", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({ data: null, error: { code: "RUNTIME_CHECK_FAILED", message: "failed" }, requestId: "request-2" }) }));
+    const view = render(<AppShell><h1>New enhancement</h1></AppShell>);
+    expect((await view.findAllByRole("button", { name: /local setup needs attention/i })).length).toBeGreaterThan(0);
   });
 });
