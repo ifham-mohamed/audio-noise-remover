@@ -62,6 +62,8 @@ function LocalTrustBadge({ readiness }: { readiness: "checking" | "ready" | "att
 
 export function AppShell({ children, activeJob }: { children: React.ReactNode; activeJob?: ActiveJobSummary }) {
   const [readiness, setReadiness] = useState<"checking" | "ready" | "attention">("checking");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const pathname = usePathname();
   useEffect(() => {
     fetch("/api/capabilities", { cache: "no-store" }).then(async (response) => {
       const envelope = apiEnvelopeSchema.parse(await response.json());
@@ -72,6 +74,10 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
       setReadiness(items.some((item) => item.status === "attention" || item.status === "unavailable") ? "attention" : "ready");
     }).catch(() => setReadiness("attention"));
   }, []);
+  useEffect(() => {
+    const target = document.querySelector<HTMLElement>("[data-surface-heading]") ?? document.getElementById("main-content");
+    target?.focus();
+  }, [pathname]);
   return (
     <TooltipProvider delayDuration={300}>
       <div className="min-h-screen bg-[var(--surface-base)]">
@@ -90,13 +96,13 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex min-h-16 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-base)]/95 px-4 backdrop-blur md:px-7 lg:px-10">
             <div className="flex items-center gap-3">
-              <Sheet>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation"><Menu className="size-5" aria-hidden="true" /></Button>
                 </SheetTrigger>
                 <SheetContent aria-label="Mobile navigation">
                   <ShellBrand />
-                  <div className="mt-8"><Navigation /></div>
+                  <div className="mt-8"><Navigation onNavigate={() => setMobileNavOpen(false)} /></div>
                   <ActiveJob activeJob={activeJob} />
                   <div className="mt-auto pt-8"><LocalTrustBadge readiness={readiness} /></div>
                 </SheetContent>
@@ -147,7 +153,8 @@ export function SurfaceHeader({ eyebrow, title, description }: { eyebrow: string
   return (
     <div className="max-w-3xl">
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">{eyebrow}</p>
-      <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)] md:text-4xl">{title}</h1>
+      <h1 tabIndex={-1} data-surface-heading className="text-3xl font-semibold tracking-[-0.04em] text-[var(--foreground)] md:text-4xl">{title}</h1>
+      <p className="sr-only" aria-live="polite">Current surface: {title}</p>
       <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--muted-foreground)] md:text-base">{description}</p>
     </div>
   );
