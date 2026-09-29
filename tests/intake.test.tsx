@@ -38,7 +38,7 @@ describe("intake panel", () => {
     const user = userEvent.setup();
     render(<IntakePanel />);
     await user.upload(fileInput(), new File(["audio"], "interview.wav", { type: "audio/wav" }));
-    await waitFor(() => expect(screen.getByText("1:15")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1:15", { selector: "dd" })).toBeInTheDocument());
     expect(screen.getByText("12 B")).toBeInTheDocument();
     expect(screen.getByText("Local source")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Tune the enhancement stages" })).toBeInTheDocument();

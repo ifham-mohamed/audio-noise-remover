@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-29-2026 04:14
-last_updated: 09-29-2026 06:10
+last_updated: 09-29-2026 06:16
 project: ai-noice-removal
 project_key: NOKEY
 tracking_system: file-system
@@ -47,7 +47,7 @@ development_status:
   2-1-select-and-inspect-local-media: review
   2-2-review-media-card-and-video-audio-stream: review
   2-3-configure-independent-speech-effects: review
-  2-4-use-waveform-timeline-and-transport-controls: backlog
+  2-4-use-waveform-timeline-and-transport-controls: review
   2-5-define-and-validate-output-profile: backlog
   epic-2-retrospective: optional
 
