@@ -62,7 +62,7 @@ development_status:
   4-2-produce-and-validate-an-immutable-output: review
   4-3-cancel-an-active-processing-job-safely: in-progress
   4-4-retry-and-recover-interrupted-jobs: in-progress
-  4-5-review-and-retrieve-a-successful-output: backlog
+  4-5-review-and-retrieve-a-successful-output: in-progress
   epic-4-retrospective: optional
 
   epic-5: backlog

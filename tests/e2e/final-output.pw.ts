@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const fixture = path.resolve(__dirname, "../fixtures/preview/tone.wav");
 
 test("creates a validated experimental full-file WAV artifact locally", async ({ page }) => {
   test.setTimeout(120_000);
+  await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined }));
   const requestOrigins = new Set<string>();
   const apiBodies: string[] = [];
   page.on("request", (request) => {
@@ -30,11 +32,11 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
       request.onsuccess = () => resolve(request.result);
     });
     try {
-      return await new Promise<{ sourceCount: number; sourceBytes: number[]; outputs: { bytes: number[]; mimeType: string; validated: boolean }[] }>((resolve, reject) => {
+      return await new Promise<{ sourceCount: number; sourceBytes: number[]; outputs: { artifactId: string; fileName: string; bytes: number[]; mimeType: string; validated: boolean }[] }>((resolve, reject) => {
         const tx = db.transaction(["sources", "outputs"], "readonly");
         const sources = tx.objectStore("sources").getAll();
         const outputs = tx.objectStore("outputs").getAll();
-        tx.oncomplete = () => resolve({ sourceCount: sources.result.length, sourceBytes: Array.from(new Uint8Array(sources.result[0]?.bytes ?? new ArrayBuffer(0))), outputs: outputs.result.map((output) => ({ bytes: Array.from(new Uint8Array(output.bytes ?? new ArrayBuffer(0))), mimeType: output.mimeType, validated: output.validated })) });
+        tx.oncomplete = () => resolve({ sourceCount: sources.result.length, sourceBytes: Array.from(new Uint8Array(sources.result[0]?.bytes ?? new ArrayBuffer(0))), outputs: outputs.result.map((output) => ({ artifactId: output.artifactId, fileName: output.fileName, bytes: Array.from(new Uint8Array(output.bytes ?? new ArrayBuffer(0))), mimeType: output.mimeType, validated: output.validated })) });
         tx.onerror = () => reject(tx.error);
       });
     } finally { db.close(); }
@@ -45,6 +47,10 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   expect(artifacts.outputs[0]?.validated).toBe(true);
   expect(artifacts.outputs[0]?.mimeType).toBe("audio/wav");
   expect(artifacts.outputs[0]?.bytes.length).toBeGreaterThan(44);
+  const audio = page.getByLabel("Listen to the validated experimental final output");
+  await expect(audio).toBeVisible();
+  await expect.poll(() => audio.evaluate((element) => (element as HTMLAudioElement).readyState)).toBeGreaterThan(0);
+  expect(await audio.evaluate((element) => (element as HTMLAudioElement).currentSrc)).toMatch(/^blob:/);
   const signalChange = await page.evaluate(async ({ source, output }) => {
     const audio = new AudioContext();
     try {
@@ -57,6 +63,46 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
     } finally { await audio.close(); }
   }, { source: artifacts.sourceBytes, output: artifacts.outputs[0]!.bytes });
   expect(signalChange).toBe(true);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download WAV" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(artifacts.outputs[0]!.fileName);
+  const downloadedBytes = await readFile((await download.path())!);
+  expect(downloadedBytes.byteLength).toBe(artifacts.outputs[0]!.bytes.length);
+  expect(downloadedBytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+  expect([...downloadedBytes]).toEqual(artifacts.outputs[0]!.bytes);
+  await page.evaluate(async (artifactId) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("ai-noice-removal-final-artifacts", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    try { await new Promise<void>((resolve, reject) => { const tx = db.transaction("outputs", "readwrite"); const store = tx.objectStore("outputs"); const get = store.get(artifactId); get.onsuccess = () => { const output = get.result; new Uint8Array(output.bytes)[0] = 78; store.put(output); }; tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); } finally { db.close(); }
+  }, artifacts.outputs[0]!.artifactId);
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "not a RIFF/WAVE file" })).toBeVisible();
+  await expect(page.getByLabel("Listen to the validated experimental final output")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download WAV" })).toHaveCount(0);
+  await page.evaluate(async (artifactId) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("ai-noice-removal-final-artifacts", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    try { await new Promise<void>((resolve, reject) => { const tx = db.transaction("outputs", "readwrite"); tx.objectStore("outputs").delete(artifactId); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); } finally { db.close(); }
+  }, artifacts.outputs[0]!.artifactId);
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "no longer available in this browser" })).toBeVisible();
+  await expect(page.getByLabel("Listen to the validated experimental final output")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download WAV" })).toHaveCount(0);
+});
+
+test("uses a browser download instead of an unsafe path picker", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: async () => { document.body.dataset.pickerInvoked = "true"; throw new Error("The save picker must not be used without source-handle identity."); } }));
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download WAV" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("enhanced-output.wav");
+  expect(await page.locator("body").getAttribute("data-picker-invoked")).toBeNull();
+  await expect(page.getByRole("status").filter({ hasText: "download has started" })).toBeVisible();
 });
 
 test("retries model-unavailable output as a new linked local attempt", async ({ page }) => {

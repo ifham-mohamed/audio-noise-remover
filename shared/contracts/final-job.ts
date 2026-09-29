@@ -54,6 +54,7 @@ export const finalJobListEnvelopeSchema = z.object({ data: z.array(finalJobSchem
 
 export type FinalJob = z.infer<typeof finalJobSchema>;
 export type FinalJobEvent = z.infer<typeof finalJobEventSchema>;
+export type FinalJobOutput = z.infer<typeof finalJobOutputSchema>;
 export type FinalJobId = z.infer<typeof finalJobIdSchema>;
 
 export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDurationSeconds: 120 } as const;

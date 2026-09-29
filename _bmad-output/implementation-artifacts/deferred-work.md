@@ -35,3 +35,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-cancel-active-final-processing-safely.md`
   summary: Manually verify Narrator speech for final-job cancelling and cancelled status messages.
   evidence: Browser E2E verifies keyboard activation and live-region text, but automated DOM assertions cannot prove the Windows Narrator actually speaks both distinct states.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-5-review-and-retrieve-successful-output.md`
+  summary: Add direct save-location support only after the app can safely identify and exclude the original source file path.
+  evidence: Intake currently provides a browser File object without a durable source handle. A save picker can select the original path (including after rename), so direct writes would violate the no-overwrite invariant. Story 4.5 uses browser downloads with the validated filename until source-handle tracking exists.

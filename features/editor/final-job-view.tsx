@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { finalJobEnvelopeSchema, type FinalJob } from "@/shared/contracts/final-job";
 import { cancelFinalWorker, FinalJobRunner, hasActiveFinalWorker } from "@/features/editor/final-job-runner";
 import { FinalRetryAction } from "@/features/editor/final-retry-action";
+import { FinalOutputReview } from "@/features/editor/final-output-review";
 
 function elapsedLabel(milliseconds: number) { const seconds = Math.floor(milliseconds / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function stateLabel(job: FinalJob, stageLabel?: string) { if (job.state === "queued") return "Final processing queued"; if (job.state === "running") return `${stageLabel ?? "Final processing"} is in progress.`; if (job.state === "cancelling") return "Cancelling final processing. Waiting for the local worker to stop."; if (job.state === "cancelled") return job.recoveryNotice ?? "Final processing cancelled. No final output was retained."; if (job.state === "failed") return `Final processing failed${job.failure ? `: ${job.failure.message}` : ""}`; return "Final processing succeeded"; }
@@ -52,7 +53,7 @@ export function FinalJobView({ id }: { id: string }) {
     {job.state === "cancelled" && job.recoveryNotice && <p className="mt-3 text-sm text-amber-200" role="status">{job.recoveryNotice}</p>}
     {job.state === "failed" && job.failure && <div className="mt-4 rounded-md border border-amber-300/40 bg-amber-300/10 p-4"><p className="text-sm">{job.failure.message}</p><p className="mt-2 text-sm">Your original remains unchanged, and no successful output is available.</p><Link href={job.failure.action === "settings" ? "/settings" : job.failure.action === "effects" ? "/#effects" : "/settings#diagnostics"} className="mt-2 inline-flex min-h-11 items-center text-sm underline">{job.failure.action === "settings" ? "Open settings" : job.failure.action === "effects" ? "Review effects" : "Open local diagnostics"}</Link></div>}
     {(job.state === "failed" || job.state === "cancelled") && <FinalRetryAction job={job} />}
-    {job.state === "succeeded" && job.output && <div className="mt-3 rounded-md border border-amber-300/40 bg-amber-300/10 p-4"><p className="text-sm font-semibold">Experimental output validated locally</p><p className="mt-1 text-sm">{job.output.fileName} · {Math.round(job.output.sizeBytes / 1024)} KB · {Math.round(job.output.durationSeconds)} seconds</p><p className="mt-1 text-xs">This DPDFNet-based result is experimental and not production-qualified.</p></div>}
+    {job.state === "succeeded" && job.output && <><p className="mt-3 text-sm font-semibold">Experimental output validated locally</p><p className="mt-1 text-xs">This DPDFNet-based result is experimental and not production-qualified.</p><FinalOutputReview expected={job.output} /></>}
     <p className="sr-only" role="status" aria-live="polite">{stateLabel(job, currentStage?.label)}</p>
     {error && <p className="mt-3 text-sm text-amber-200" role="status">The latest status refresh failed. Showing the last saved job state. {error}</p>}
     <p className="mt-4 text-xs text-[var(--muted-foreground)]">Stages: {job.enabledStages.map((stage) => stage.label).join(" · ") || "No enhancement stages enabled"}. Your media remains local.</p>
