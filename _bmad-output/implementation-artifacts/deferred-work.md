@@ -22,3 +22,13 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-start-and-monitor-final-processing.md`
   summary: Reconcile persisted running or cancelling final jobs after restart with a recoverable terminal state.
   evidence: The new final-job store persists lifecycle metadata; Story 4.4 owns startup reconciliation and retry linkage, so persisted active jobs must not remain live after an app restart.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-produce-and-validate-an-immutable-output.md`
+  summary: Expand the experimental final executor beyond short WAV/noise-removal-only to the remaining audio/video formats and enabled-stage adapters, and complete platform/memory verification.
+  evidence: The current custom FFmpeg core has a verified PCM24 WAV encoder only; video/audio compressed-output encoders and video stream preservation are not built or validated, and only noise removal has a model adapter. Unsupported profiles remain disabled/fail-closed. Production qualification remains separate: the candidate model has not met the unchanged quality gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-produce-and-validate-an-immutable-output.md`
+  summary: Add a user-facing way to review and retrieve/download validated final artifacts.
+  evidence: Story 4.2 retains and validates artifact bytes locally, but currently displays metadata only; artifact review and retrieval are assigned to Story 4.5.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-produce-and-validate-an-immutable-output.md`
+  summary: Decide and implement a safe local source-media retention and deletion policy compatible with retry.
+  evidence: Source bytes are retained locally for Story 4.4 retry support. No duration or cleanup rule was approved, and project context prohibits silently choosing a retention policy.

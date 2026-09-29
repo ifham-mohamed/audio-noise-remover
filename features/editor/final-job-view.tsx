@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { finalJobEnvelopeSchema, type FinalJob } from "@/shared/contracts/final-job";
+import { FinalJobRunner } from "@/features/editor/final-job-runner";
 
 function elapsedLabel(milliseconds: number) { const seconds = Math.floor(milliseconds / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 function stateLabel(job: FinalJob, stageLabel?: string) { if (job.state === "queued") return "Final processing queued"; if (job.state === "running") return `${stageLabel ?? "Final processing"} · ${elapsedLabel(job.elapsedMs)} elapsed`; if (job.state === "failed") return `Final processing failed${job.failure ? `: ${job.failure.message}` : ""}`; return `Final processing ${job.state}`; }
@@ -28,12 +29,13 @@ export function FinalJobView({ id }: { id: string }) {
   const currentStage = job.enabledStages.find((stage) => stage.id === job.phase);
   const elapsedText = elapsedLabel(elapsed);
   return <section className="mt-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-raised)] p-5" aria-labelledby="final-job-title">
+    <FinalJobRunner job={job} />
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">Final attempt · {job.id.slice(0, 8)}</p><h2 id="final-job-title" className="mt-1 text-xl font-semibold">{job.media.sourceName}</h2>
     <p className="mt-3 text-sm">Status: <span className="font-medium">{job.state}</span></p>
     {job.state === "running" && <><p className="mt-2 text-sm">Stage: {currentStage?.label ?? "Preparing"} · Elapsed: {elapsedText}</p>{job.progress !== undefined ? <><label htmlFor="final-progress" className="mt-4 block text-sm">Overall stage progress: {Math.round(job.progress * 100)}%</label><progress id="final-progress" className="mt-2 h-2 w-full accent-[var(--primary)]" aria-label="Final processing progress" aria-valuetext={`${Math.round(job.progress * 100)} percent`} value={job.progress} max={1} /></> : <p className="mt-3 text-sm text-[var(--muted-foreground)]">Progress is not available for this step.</p>}</>}
     {job.state === "queued" && <p className="mt-2 text-sm text-[var(--muted-foreground)]">Waiting for a local processing worker. No output is available yet.</p>}
     {job.state === "failed" && job.failure && <div className="mt-4 rounded-md border border-amber-300/40 bg-amber-300/10 p-4"><p className="text-sm">{job.failure.message}</p><p className="mt-2 text-sm">Your original remains unchanged, and no successful output is available.</p><Link href={job.failure.action === "settings" ? "/settings" : job.failure.action === "effects" ? "/#effects" : "/settings#diagnostics"} className="mt-2 inline-flex min-h-11 items-center text-sm underline">{job.failure.action === "settings" ? "Open settings" : job.failure.action === "effects" ? "Review effects" : "Open local diagnostics"}</Link></div>}
-    {job.state === "succeeded" && job.output && <p className="mt-3 text-sm">Validated output: {job.output.fileName} · {Math.round(job.output.sizeBytes / 1024)} KB</p>}
+    {job.state === "succeeded" && job.output && <div className="mt-3 rounded-md border border-amber-300/40 bg-amber-300/10 p-4"><p className="text-sm font-semibold">Experimental output validated locally</p><p className="mt-1 text-sm">{job.output.fileName} · {Math.round(job.output.sizeBytes / 1024)} KB · {Math.round(job.output.durationSeconds)} seconds</p><p className="mt-1 text-xs">This DPDFNet-based result is experimental and not production-qualified.</p></div>}
     <p className="sr-only" role="status" aria-live="polite">{stateLabel(job, currentStage?.label)}</p>
     {error && <p className="mt-3 text-sm text-amber-200" role="status">The latest status refresh failed. Showing the last saved job state. {error}</p>}
     <p className="mt-4 text-xs text-[var(--muted-foreground)]">Stages: {job.enabledStages.map((stage) => stage.label).join(" · ") || "No enhancement stages enabled"}. Your media remains local.</p>

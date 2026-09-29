@@ -66,9 +66,23 @@ try {
     throw new Error(`Trimmed preview duration was unexpected (${durationSeconds} seconds).`);
   }
   console.log(`Bundled local FFmpeg core passed WAV decode, range trim, resample, and WAV validation (${decoded.byteLength} bytes, ${durationSeconds.toFixed(3)} s).`);
+
+  core.FS.writeFile("/experimental-input.wav", decoded);
+  core.exec("-i", "/experimental-input.wav", "-map", "0:a:0", "-ar", "48000", "-ac", "1", "-c:a", "pcm_s24le", "/experimental-output.wav");
+  const finalOutput = core.FS.readFile("/experimental-output.wav");
+  const outputView = new DataView(finalOutput.buffer, finalOutput.byteOffset, finalOutput.byteLength);
+  const outputFormatTag = outputView.getUint16(20, true);
+  const outputPcmSubformat = outputFormatTag === 0xfffe && outputView.getUint32(44, true) === 1;
+  const outputPcm = outputFormatTag === 1 || outputPcmSubformat;
+  if (core.ret !== 0 || String.fromCharCode(...finalOutput.subarray(0, 4)) !== "RIFF" || String.fromCharCode(...finalOutput.subarray(8, 12)) !== "WAVE" || !outputPcm || outputView.getUint16(22, true) !== 1 || outputView.getUint32(24, true) !== 48_000 || outputView.getUint16(34, true) !== 24) {
+    throw new Error(`Bundled local FFmpeg core failed final PCM24 WAV encoding (exit=${core.ret}, bytes=${finalOutput.byteLength}).`);
+  }
+  console.log(`Bundled local FFmpeg core passed complete WAV-to-PCM24-WAV encoding (${finalOutput.byteLength} bytes).`);
+  core.FS.unlink("/experimental-output.wav");
+  core.FS.unlink("/experimental-input.wav");
   core.FS.unlink("/decoded.wav");
   core.FS.unlink("/fixture.wav");
-  if (core.FS.readdir("/").some((entry) => entry === "decoded.wav" || entry === "fixture.wav")) {
+  if (core.FS.readdir("/").some((entry) => ["decoded.wav", "fixture.wav", "experimental-output.wav", "experimental-input.wav"].includes(entry))) {
     throw new Error("Temporary in-memory media was not cleaned up after the processing check.");
   }
 } finally {

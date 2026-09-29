@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createFinalJobFileStore } from "@/server/adapters/final-job-file-store";
 import { createFinalJobCoordinator } from "@/server/domain/final-job-coordinator";
-import { createFinalJob, finalJobSchema } from "@/shared/contracts/final-job";
+import { createFinalJob, finalJobSchema, isSupportedExperimentalFinalProfile } from "@/shared/contracts/final-job";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
@@ -27,6 +27,23 @@ describe("final job contract and coordinator", () => {
   it("rejects a final result without validated output evidence", () => {
     const job = createFinalJob(media, profile);
     expect(() => finalJobSchema.parse({ ...job, state: "succeeded" })).toThrow(/validated output artifact/);
+  });
+
+  it("only accepts success for the supported experimental profile with a validated full-duration local WAV artifact", async () => {
+    const shortMedia: MediaMetadata = { ...media, sizeBytes: 48_044, durationSeconds: 1, audioStream: { ...media.audioStream, channels: 1, sampleRate: 48_000 } };
+    const shortProfile = { ...profile, mediaRef: shortMedia.sourceRef, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" })) };
+    expect(isSupportedExperimentalFinalProfile(shortMedia, shortProfile)).toBe(true);
+    const coordinator = createFinalJobCoordinator({ store: memoryStore() });
+    const job = await coordinator.create({ media: shortMedia, profile: shortProfile });
+    coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 1, phase: "Enhancing", stageId: "noise-removal", progress: 0.9, elapsedMs: 900 });
+    const output = { artifactId: "00000000-0000-4000-8000-000000000099", fileName: "enhanced-output.wav", mimeType: "audio/wav" as const, sizeBytes: 144_044, durationSeconds: 1, mediaValidated: true as const, experimental: true as const };
+    expect(coordinator.consume(job.id, { type: "succeeded", jobId: job.id, sequence: 2, elapsedMs: 1_000, output })).toMatchObject({ state: "succeeded", output });
+
+    const incompatible = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const invalidProfile = { ...shortProfile, stages: profile.stages };
+    const invalidJob = await incompatible.create({ media: shortMedia, profile: invalidProfile });
+    incompatible.consume(invalidJob.id, { type: "progress", jobId: invalidJob.id, sequence: 1, phase: "Enhancing", stageId: "noise-removal", progress: 0.9, elapsedMs: 900 });
+    expect(() => incompatible.consume(invalidJob.id, { type: "succeeded", jobId: invalidJob.id, sequence: 2, elapsedMs: 1_000, output })).toThrow(/unsupported/);
   });
 
   it("rejects a profile with no enabled enhancement stages", () => {
@@ -78,6 +95,16 @@ describe("final job contract and coordinator", () => {
     await expect(coordinator.create({ media, profile })).rejects.toMatchObject({ code: "RUNTIME_UNAVAILABLE" });
     resolvers.forEach((resolve) => resolve(true));
     await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
+  it("rejects a repeated attempt ID without replacing the previous job", async () => {
+    const id = "00000000-0000-4000-8000-000000000099";
+    const store = memoryStore();
+    const coordinator = createFinalJobCoordinator({ canExecuteFinal: () => true, store });
+    const original = await coordinator.create({ media, profile, clientAttemptId: id });
+    await expect(coordinator.create({ media, profile, clientAttemptId: id })).rejects.toMatchObject({ code: "INVALID_TRANSITION" });
+    expect(coordinator.get(id)).toEqual(original);
+    expect(coordinator.list()).toHaveLength(1);
   });
 
   it("keeps unreadable local storage inside the safe error boundary", () => {

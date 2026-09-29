@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audioStreamSchema, mediaMetadataSchema } from "@/shared/contracts/media";
-import { processingProfileSchema } from "@/shared/contracts/processing";
+import type { MediaMetadata } from "@/shared/contracts/media";
+import { processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
 
 const finalMediaMetadataSchema = z.strictObject({ ...mediaMetadataSchema.shape, audioStream: audioStreamSchema.strict(), audioStreams: z.array(audioStreamSchema.strict()).min(1).optional() });
 export const finalJobStateSchema = z.enum(["queued", "running", "cancelling", "cancelled", "succeeded", "failed"]);
@@ -11,7 +12,7 @@ export const finalJobFailureSchema = z.strictObject({
   action: z.enum(["settings", "diagnostics", "effects"]).optional(),
 });
 export const finalJobStageSchema = z.strictObject({ id: z.string().min(1), label: z.string().min(1) });
-export const finalJobOutputSchema = z.strictObject({ fileName: z.string().min(1), mimeType: z.string().min(1), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true) });
+export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: z.literal("audio/wav"), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) });
 export const finalJobSchema = z.strictObject({
   id: finalJobIdSchema,
   kind: z.literal("final"),
@@ -38,10 +39,11 @@ export const finalJobSchema = z.strictObject({
   const enabled = job.profile.stages.filter((stage) => stage.enabled).map((stage) => stage.id);
   if (enabled.length !== job.enabledStages.length || enabled.some((id, index) => id !== job.enabledStages[index]?.id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["enabledStages"], message: "Active stages must exactly match the enabled profile stages in order." });
 });
-export const createFinalJobRequestSchema = z.strictObject({ media: finalMediaMetadataSchema, profile: processingProfileSchema.strict() });
+export const createFinalJobRequestSchema = z.strictObject({ media: finalMediaMetadataSchema, profile: processingProfileSchema.strict(), clientAttemptId: finalJobIdSchema.optional() });
 export const finalJobEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("progress"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), phase: z.string().min(1).max(80), stageId: z.string().min(1), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative() }),
   z.strictObject({ type: z.literal("failed"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), failure: finalJobFailureSchema }),
+  z.strictObject({ type: z.literal("succeeded"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), output: finalJobOutputSchema }),
 ]);
 export const finalJobCommandSchema = z.strictObject({ command: z.literal("event"), event: finalJobEventSchema });
 export const finalJobEnvelopeSchema = z.object({ data: finalJobSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string() });
@@ -50,6 +52,27 @@ export const finalJobListEnvelopeSchema = z.object({ data: z.array(finalJobSchem
 export type FinalJob = z.infer<typeof finalJobSchema>;
 export type FinalJobEvent = z.infer<typeof finalJobEventSchema>;
 export type FinalJobId = z.infer<typeof finalJobIdSchema>;
+
+export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDurationSeconds: 120 } as const;
+
+export function isSupportedExperimentalFinalProfile(media: MediaMetadata, profile: ProcessingProfile) {
+  const enabled = profile.stages.filter((stage) => stage.enabled);
+  const outputName = profile.output.destination.targetName.trim();
+  return media.mediaKind === "audio"
+    && media.format === "wav"
+    && media.sizeBytes > 0 && media.sizeBytes <= experimentalFinalLimits.maxInputBytes
+    && media.durationSeconds > 0 && media.durationSeconds <= experimentalFinalLimits.maxDurationSeconds
+    && (media.audioStream.channels ?? 1) <= 2
+    && enabled.length === 1 && enabled[0]?.id === "noise-removal" && enabled[0].parameters.intensity > 0
+    && profile.output.mediaKind === "audio" && profile.output.format === "audio-wav" && profile.output.audioCodec === "pcm_s24le"
+    && !profile.output.destination.targetRef.startsWith("source")
+    && outputName.toLowerCase() !== media.sourceName.trim().toLowerCase()
+    && outputName.length <= 180 && outputName === profile.output.destination.targetName.trim()
+    && !/[\\/<>:"|?*\u0000-\u001f]/.test(outputName)
+    && !/[. ]$/.test(outputName)
+    && outputName.toLowerCase().endsWith(".wav")
+    && ["ask", "browser-download"].includes(profile.output.destination.mode);
+}
 
 export type FinalJobErrorCode = "INVALID_MEDIA" | "INVALID_PROFILE" | "SOURCE_TARGET" | "MODEL_UNAVAILABLE" | "RUNTIME_UNAVAILABLE" | "STORAGE_UNAVAILABLE" | "DISK_SPACE_LOW" | "JOB_NOT_FOUND" | "INVALID_TRANSITION";
 export class FinalJobError extends Error {

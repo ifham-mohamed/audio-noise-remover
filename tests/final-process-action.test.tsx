@@ -8,29 +8,37 @@ import type { MediaMetadata } from "@/shared/contracts/media";
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-const media: MediaMetadata = { sourceName: "speech.wav", sourceRef: "local:speech.wav:20:1", format: "wav", mediaKind: "audio", sizeBytes: 20, durationSeconds: 30, audioStream: { id: "audio-0", present: true, summary: "Ready" } };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); push.mockClear(); });
+const saveSource = vi.hoisted(() => vi.fn(async () => undefined));
+const removeSource = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/features/final/final-artifact-store", () => ({ saveFinalSource: saveSource, removeFinalSource: removeSource }));
+const media: MediaMetadata = { sourceName: "speech.wav", sourceRef: "local:speech.wav:20:1", format: "wav", mediaKind: "audio", sizeBytes: 48_044, durationSeconds: 1, audioStream: { id: "audio-0", present: true, channels: 1, sampleRate: 48000, summary: "Ready" } };
+function supportedProfile() { const profile = defaultProcessingProfile(media.sourceRef, "audio-0"); return { ...profile, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" })) }; }
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); push.mockClear(); });
 
 describe("final process action", () => {
-  it("keeps Process unavailable until the verified local final executor and output path exist", () => {
+  it("keeps Process unavailable for unsupported profiles and explains the experimental limits", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    render(<FinalProcessAction media={media} profile={defaultProcessingProfile(media.sourceRef, "audio-0")} fileAvailable />);
+    render(<FinalProcessAction media={media} profile={defaultProcessingProfile(media.sourceRef, "audio-0")} file={new File([new Uint8Array(media.sizeBytes)], "speech.wav", { type: "audio/wav" })} fileAvailable />);
     expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("no verified full-file final executor and output path");
+    expect(screen.getByRole("status")).toHaveTextContent("noise removal only");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
   });
-  it("allows keyboard activation when the verified local executor is available", async () => {
+  it("saves the original locally and starts the supported experimental WAV path with keyboard activation", async () => {
     const jobId = "00000000-0000-4000-8000-000000000001";
-    const job = createFinalJob(media, defaultProcessingProfile(media.sourceRef, "audio-0"), { id: jobId });
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(jobId);
+    const profile = supportedProfile();
+    const file = new File([new Uint8Array(media.sizeBytes)], "speech.wav", { type: "audio/wav" });
+    const job = createFinalJob(media, profile, { id: jobId });
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({ ok: true, json: async () => ({ data: job, error: null, requestId: "test" }), body: init?.body }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<FinalProcessAction media={media} profile={defaultProcessingProfile(media.sourceRef, "audio-0")} fileAvailable canExecuteFinal />);
+    render(<FinalProcessAction media={media} profile={profile} file={file} fileAvailable />);
     await user.tab(); expect(screen.getByRole("button", { name: "Process" })).toHaveFocus();
     await user.keyboard("{Enter}");
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0") });
+    expect(saveSource).toHaveBeenCalledWith(jobId, file);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ media, profile, clientAttemptId: jobId });
     await waitFor(() => expect(push).toHaveBeenCalledWith(`/processing/${jobId}`));
   });
 });

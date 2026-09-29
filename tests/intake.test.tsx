@@ -8,6 +8,8 @@ import { defaultProcessingProfile } from "@/shared/contracts/processing";
 
 const inspectionMock = vi.hoisted(() => ({ inspectLocalMedia: vi.fn<(file: File) => Promise<MediaInspection>>() }));
 vi.mock("@/features/intake/media-inspection", () => inspectionMock);
+const routerMock = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
 
 const readyResult: MediaInspection = { status: "ready", metadata: { sourceName: "interview.wav", sourceRef: "local:interview.wav:12:1", format: "wav", mediaKind: "audio", sizeBytes: 12, durationSeconds: 75, audioStream: { present: true, summary: "Audio stream ready" } } };
 

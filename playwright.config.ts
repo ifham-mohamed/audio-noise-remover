@@ -28,7 +28,10 @@ export default defineConfig({
       url: "http://127.0.0.1:3100",
       reuseExistingServer: false,
       timeout: 60_000,
-      env: { AI_NOICE_PREVIEW_JOB_STORE_PATH: path.join(os.tmpdir(), `ai-noice-preview-e2e-${process.pid}.json`) },
+      env: {
+        AI_NOICE_PREVIEW_JOB_STORE_PATH: path.join(os.tmpdir(), `ai-noice-preview-e2e-${process.pid}.json`),
+        AI_NOICE_FINAL_JOB_STORE_PATH: path.join(os.tmpdir(), `ai-noice-final-e2e-${process.pid}.json`),
+      },
     },
   ],
 });
