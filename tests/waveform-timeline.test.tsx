@@ -11,8 +11,14 @@ describe("waveform timeline", () => {
     expect(screen.getByRole("heading", { name: "Audio timeline" })).toBeInTheDocument();
     expect(screen.getByLabelText("Waveform overview")).toBeInTheDocument();
     expect(screen.getByLabelText("Seek through audio")).toHaveValue("0");
-    expect(screen.getByText("Preview bounds: 0:00 – 1:15")).toBeInTheDocument();
+    expect(screen.getByText("No preview range yet · media 1:15")).toBeInTheDocument();
     expect(screen.getByText("Current time").parentElement).toHaveTextContent("0:00 / 1:15");
+  });
+
+  it("shows the last bounded preview range as text and a visual timeline region", () => {
+    render(<WaveformTimeline durationSeconds={90} previewRange={{ startSeconds: 30, endSeconds: 60 }} />);
+    expect(screen.getByText("Last preview range: 30.00 to 60.00 seconds. The shaded area shows the selected sample.")).toBeInTheDocument();
+    expect(screen.getByText("Last preview bounds: 0:30 – 1:00")).toBeInTheDocument();
   });
 
   it("clamps text and range seeking and supports keyboard seeking", async () => {

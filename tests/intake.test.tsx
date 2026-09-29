@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IntakePanel } from "@/features/intake/intake-panel";
 import type { MediaInspection } from "@/shared/contracts/media";
+import { createPreviewJob } from "@/shared/contracts/preview";
+import { defaultProcessingProfile } from "@/shared/contracts/processing";
 
 const inspectionMock = vi.hoisted(() => ({ inspectLocalMedia: vi.fn<(file: File) => Promise<MediaInspection>>() }));
 vi.mock("@/features/intake/media-inspection", () => inspectionMock);
@@ -12,7 +14,14 @@ const readyResult: MediaInspection = { status: "ready", metadata: { sourceName: 
 function fileInput() { return document.querySelector<HTMLInputElement>("input[type=file]")!; }
 
 describe("intake panel", () => {
-  beforeEach(() => { inspectionMock.inspectLocalMedia.mockReset(); });
+  beforeEach(() => {
+    inspectionMock.inspectLocalMedia.mockReset();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { media: typeof readyResult.metadata; profile: ReturnType<typeof defaultProcessingProfile>; currentTimeSeconds: number };
+      const job = createPreviewJob(body.media, body.profile, body.currentTimeSeconds, { id: "00000000-0000-4000-8000-000000000001" });
+      return { ok: true, json: async () => ({ data: job, error: null, requestId: "test-request" }) };
+    }));
+  });
 
   it("shows the local empty intake and supported formats", () => {
     render(<IntakePanel />);
@@ -43,8 +52,27 @@ describe("intake panel", () => {
     expect(screen.getByText("Local source")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Tune the enhancement stages" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Where should this go?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("button", { name: "Choose a local audio or video file" })).toBeInTheDocument();
+  });
+
+  it("creates a bounded preview request from the current playback position and effect profile", async () => {
+    inspectionMock.inspectLocalMedia.mockResolvedValue(readyResult);
+    const user = userEvent.setup();
+    render(<IntakePanel />);
+    await user.upload(fileInput(), new File(["audio"], "interview.wav", { type: "audio/wav" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument());
+    const playhead = screen.getByRole("spinbutton", { name: "Go to seconds" });
+    await user.clear(playhead);
+    await user.type(playhead, "40");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.getByRole("heading", { name: "Preview", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText(/Bounded sample · 0:30/)).toBeInTheDocument();
+    expect(screen.getByText(/Range 25\.00–55\.00 seconds/)).toBeInTheDocument();
+    const noise = screen.getByRole("switch", { name: "Noise removal enabled" });
+    await user.click(noise);
+    expect(screen.getByText("This preview is from an older profile.")).toBeInTheDocument();
   });
 
   it("shows an actionable inspection error without processing controls", async () => {
