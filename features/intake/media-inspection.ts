@@ -7,7 +7,7 @@ function browserProbe(file: File, kind: "audio" | "video"): Promise<{ durationSe
     const url = URL.createObjectURL(file);
     const element = document.createElement(kind);
     element.preload = "metadata";
-    element.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve({ durationSeconds: Number.isFinite(element.duration) ? element.duration : 0, audioStream: { present: true, summary: kind === "video" ? "Audio track detected by local media probe" : "Audio stream ready" } }); };
+    element.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve({ durationSeconds: Number.isFinite(element.duration) ? element.duration : 0, audioStream: { id: "audio-0", label: "Default audio", present: true, summary: kind === "video" ? "Audio track detected by local media probe" : "Audio stream ready" } }); };
     element.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Media metadata could not be read.")); };
     element.src = url;
   });
@@ -19,6 +19,7 @@ export async function inspectLocalMedia(file: File): Promise<MediaInspection> {
   if (file.size === 0) return error("CORRUPT_MEDIA", "This file is empty or unreadable. Choose another local file.");
   try {
     const probe = await browserProbe(file, kindFromFormat(format));
-    return mediaInspectionSchema.parse({ status: "ready", metadata: { sourceName: file.name, sourceRef: `local:${file.name}:${file.size}:${file.lastModified}`, format, mediaKind: kindFromFormat(format), sizeBytes: file.size, durationSeconds: probe.durationSeconds, audioStream: probe.audioStream } });
+    const mediaKind = kindFromFormat(format);
+    return mediaInspectionSchema.parse({ status: "ready", metadata: { sourceName: file.name, sourceRef: `local:${file.name}:${file.size}:${file.lastModified}`, format, mediaKind, sizeBytes: file.size, durationSeconds: probe.durationSeconds, audioStream: probe.audioStream, audioStreams: [probe.audioStream], selectedAudioStreamId: probe.audioStream.id } });
   } catch { return error("CORRUPT_MEDIA", "Clearwave could not read this file or find a usable audio stream. Replace it with a supported media file."); }
 }

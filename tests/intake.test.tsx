@@ -74,4 +74,28 @@ describe("intake panel", () => {
     await user.upload(fileInput(), new File(["audio"], "interview.wav", { type: "audio/wav" }));
     await waitFor(() => expect(screen.getByRole("link", { name: "Open local diagnostics" })).toHaveAttribute("href", "/settings#diagnostics"));
   });
+
+  it("reviews video audio-first and persists a selected stream", async () => {
+    const videoResult: MediaInspection = { status: "ready", metadata: { sourceName: "meeting.mp4", sourceRef: "local:meeting", format: "mp4", mediaKind: "video", sizeBytes: 200, durationSeconds: 12, audioStream: { id: "main", label: "Main mix", present: true, summary: "AAC stereo", channels: 2, channelLayout: "stereo", sampleRate: 48000 }, audioStreams: [{ id: "main", label: "Main mix", present: true, summary: "AAC stereo", channels: 2, channelLayout: "stereo", sampleRate: 48000 }, { id: "commentary", label: "Commentary", present: true, summary: "AAC mono", channels: 1, channelLayout: "mono", sampleRate: 44100 }], selectedAudioStreamId: "main" } };
+    inspectionMock.inspectLocalMedia.mockResolvedValue(videoResult);
+    const user = userEvent.setup();
+    render(<IntakePanel />);
+    await user.upload(fileInput(), new File(["video"], "meeting.mp4", { type: "video/mp4" }));
+    await waitFor(() => expect(screen.getByText("Audio-first review")).toBeInTheDocument());
+    expect(screen.getByText("stereo")).toBeInTheDocument();
+    expect(screen.getByText("48,000 Hz")).toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Audio stream" });
+    await user.selectOptions(select, "commentary");
+    expect(select).toHaveValue("commentary");
+    expect(screen.getByText("AAC mono")).toBeInTheDocument();
+  });
+
+  it("documents the first-stream default when video choices are unavailable", async () => {
+    inspectionMock.inspectLocalMedia.mockResolvedValue({ status: "ready", metadata: { ...readyResult.metadata, sourceName: "single.mp4", format: "mp4", mediaKind: "video", audioStream: { id: "audio-0", present: true, summary: "Default audio" } } });
+    const user = userEvent.setup();
+    render(<IntakePanel />);
+    await user.upload(fileInput(), new File(["video"], "single.mp4", { type: "video/mp4" }));
+    await waitFor(() => expect(screen.getByText(/first usable audio stream by default/)).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "Audio stream" })).not.toBeInTheDocument();
+  });
 });
