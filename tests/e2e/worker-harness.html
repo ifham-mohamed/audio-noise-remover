@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local preview worker integration harness</title>
+  </head>
+  <body>
+    <main>
+      <h1>Local preview worker integration harness</h1>
+      <label for="media-file">Local test media</label>
+      <input id="media-file" type="file" accept=".wav,.mp3,.flac,.m4a,.mp4,.mov,.mkv" />
+      <label for="audio-track">Selected audio track</label>
+      <select id="audio-track">
+        <option value="0">First audio track</option>
+        <option value="1">Second audio track</option>
+      </select>
+      <label for="voice-clarity">Enable unsupported voice clarity</label>
+      <input id="voice-clarity" type="checkbox" />
+      <button id="run-preview" type="button">Run experimental local preview</button>
+      <button id="cancel-preview" type="button" disabled>Cancel experimental preview</button>
+      <pre id="result" role="status" aria-live="polite" aria-atomic="true" data-testid="worker-result">Waiting for a local test file.</pre>
+    </main>
+    <script type="module" src="/tests/e2e/worker-harness.ts"></script>
+  </body>
+</html>
