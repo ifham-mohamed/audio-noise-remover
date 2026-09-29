@@ -57,8 +57,8 @@ development_status:
   3-3-compare-before-and-after-preview-audio: review
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-start-and-monitor-final-processing: backlog
+  epic-4: in-progress
+  4-1-start-and-monitor-final-processing: review
   4-2-produce-and-validate-an-immutable-output: backlog
   4-3-cancel-an-active-processing-job-safely: backlog
   4-4-retry-and-recover-interrupted-jobs: backlog

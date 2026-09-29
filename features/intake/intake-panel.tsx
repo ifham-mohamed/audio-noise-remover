@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { EffectInspector } from "@/features/editor/effect-inspector";
 import { OutputProfilePanel } from "@/features/editor/output-profile";
 import { PreviewAction } from "@/features/editor/preview-action";
+import { FinalProcessAction } from "@/features/editor/final-process-action";
 import { WaveformTimeline } from "@/features/editor/waveform-timeline";
 import { inspectLocalMedia } from "@/features/intake/media-inspection";
 import { supportedMediaFormats, type AudioStream, type MediaInspection, type MediaMetadata } from "@/shared/contracts/media";
@@ -53,6 +54,7 @@ function ReadyCard({ file, metadata, onStreamChange, onRemove, onReplace, inputR
     <EffectInspector key={`effects:${metadata.sourceRef}:${selectedAudioStreamId ?? "default"}`} mediaRef={metadata.sourceRef} selectedAudioStreamId={selectedAudioStreamId} onProfileChange={(next) => setProfile((current) => ({ ...current, stages: next.stages }))} />
     <OutputProfilePanel key={`output:${metadata.sourceRef}:${selectedAudioStreamId ?? "default"}`} mediaRef={metadata.sourceRef} sourceName={metadata.sourceName} sourceFormat={metadata.format} mediaKind={metadata.mediaKind} selectedAudioStreamId={selectedAudioStreamId} onProfileChange={(next) => setProfile((current) => ({ ...current, output: next.output }))} />
     <PreviewAction file={file} media={metadata} profile={profile} currentTimeSeconds={currentTimeSeconds} onPreviewCreated={setLastPreviewJob} />
+    <FinalProcessAction fileAvailable={!!file} media={metadata} profile={profile} />
   </section>;
 }
 function ErrorCard({ inspection, onRemove, onReplace, inputRef, onSelect }: { inspection: Extract<MediaInspection, { status: "error" }>; onRemove: () => void; onReplace: () => void; inputRef: React.RefObject<HTMLInputElement | null>; onSelect: (file?: File) => void }) { return <section className="mt-10 rounded-[var(--radius-lg)] border border-rose-300/30 bg-[var(--surface-raised)] p-5" role="alert" aria-labelledby="media-error-title"><MediaInput inputRef={inputRef} onSelect={onSelect} /><div className="flex items-start gap-3"><X className="mt-0.5 size-5 shrink-0 text-rose-300" aria-hidden="true" /><div><h2 id="media-error-title" className="font-semibold">Couldn’t inspect this file</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{inspection.message}</p>{inspection.code === "UNSUPPORTED_MEDIA" && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Supported: {supportedMediaFormats.map((format) => format.toUpperCase()).join(", ")}</p>}{inspection.code === "INSPECTION_UNAVAILABLE" && <p className="mt-3 text-sm"><Link className="text-[var(--primary)] underline" href="/settings#diagnostics">Open local diagnostics</Link></p>}</div></div><div className="mt-6 flex flex-wrap gap-3"><Button type="button" onClick={onReplace}>Replace file</Button><Button type="button" variant="outline" onClick={onRemove}>Remove</Button></div></section>; }

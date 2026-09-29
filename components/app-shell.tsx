@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiEnvelopeSchema } from "@/shared/contracts/capabilities";
+import { finalJobListEnvelopeSchema } from "@/shared/contracts/final-job";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -62,6 +63,7 @@ function LocalTrustBadge({ readiness }: { readiness: "checking" | "ready" | "att
 
 export function AppShell({ children, activeJob }: { children: React.ReactNode; activeJob?: ActiveJobSummary }) {
   const [readiness, setReadiness] = useState<"checking" | "ready" | "attention">("checking");
+  const [localActiveJob, setLocalActiveJob] = useState<ActiveJobSummary>();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
   useEffect(() => {
@@ -75,6 +77,23 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
     }).catch(() => setReadiness("attention"));
   }, []);
   useEffect(() => {
+    let alive = true; let requestInFlight = false;
+    const refresh = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const response = await fetch("/api/final-jobs", { cache: "no-store" });
+        const envelope = finalJobListEnvelopeSchema.parse(await response.json());
+        if (!response.ok || !envelope.data) return;
+        const job = envelope.data.find((item) => ["queued", "running", "cancelling"].includes(item.state));
+        if (alive) setLocalActiveJob(job ? { href: `/processing/${job.id}`, label: job.media.sourceName, status: job.phase ? `${job.phase} · ${job.state} · ${elapsedLabel(job.elapsedMs)}` : `Final processing ${job.state} · ${elapsedLabel(job.elapsedMs)}` } : undefined);
+      } catch { /* The persistent shell remains usable when local history is temporarily unavailable. */ }
+      finally { requestInFlight = false; }
+    };
+    void refresh(); const timer = window.setInterval(() => void refresh(), 2000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
+  useEffect(() => {
     const target = document.querySelector<HTMLElement>("[data-surface-heading]") ?? document.getElementById("main-content");
     target?.focus();
   }, [pathname]);
@@ -85,7 +104,7 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
         <aside className="hidden w-64 shrink-0 border-r border-[var(--border)] bg-[var(--surface-raised)] p-5 lg:flex lg:flex-col" aria-label="Application sidebar">
           <ShellBrand />
           <div className="mt-8"><Navigation /></div>
-          <ActiveJob activeJob={activeJob} />
+          <ActiveJob activeJob={activeJob ?? localActiveJob} />
           <div className="mt-auto space-y-4">
             <Separator />
             <LocalTrustBadge readiness={readiness} />
@@ -103,7 +122,7 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
                 <SheetContent aria-label="Mobile navigation">
                   <ShellBrand />
                   <div className="mt-8"><Navigation onNavigate={() => setMobileNavOpen(false)} /></div>
-                  <ActiveJob activeJob={activeJob} />
+                  <ActiveJob activeJob={activeJob ?? localActiveJob} />
                   <div className="mt-auto pt-8"><LocalTrustBadge readiness={readiness} /></div>
                 </SheetContent>
               </Sheet>
@@ -118,6 +137,8 @@ export function AppShell({ children, activeJob }: { children: React.ReactNode; a
     </TooltipProvider>
   );
 }
+
+function elapsedLabel(milliseconds: number) { const seconds = Math.floor(milliseconds / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
 
 function ShellBrand({ compact = false }: { compact?: boolean }) {
   return (
