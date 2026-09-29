@@ -105,6 +105,16 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       b.createdAt.localeCompare(a.createdAt),
     );
   }
+  function cancel(id: string) {
+    assertStoreReady();
+    const current = get(id);
+    if (current.state !== "running") throw new FinalJobError("INVALID_TRANSITION", "Only an active final-processing attempt can be cancelled.");
+    const next = { ...current, state: "cancelling" as const, sequence: current.sequence + 1, updatedAt: now() };
+    const candidate = new Map(jobs);
+    candidate.set(id, next);
+    commit(candidate);
+    return next;
+  }
   function consume(id: string, input: unknown) {
     assertStoreReady();
     const event = finalJobEventSchema.parse(input) as FinalJobEvent;
@@ -124,6 +134,15 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
         "INVALID_TRANSITION",
         "Final processing elapsed time cannot move backwards.",
       );
+    if (current.state === "cancelling" && event.type !== "cancelled") throw new FinalJobError("INVALID_TRANSITION", "A cancellation is being finalized; late worker updates are ignored.");
+    if (event.type === "cancelled") {
+      if (current.state !== "cancelling") throw new FinalJobError("INVALID_TRANSITION", "Cancellation can be finalized only after the coordinator acknowledges the request.");
+      const next = { ...current, state: "cancelled" as const, sequence: event.sequence, updatedAt: now(), elapsedMs: event.elapsedMs, progress: undefined };
+      const candidate = new Map(jobs);
+      candidate.set(id, next);
+      commit(candidate);
+      return next;
+    }
     const stamp = now();
     if (event.type === "succeeded") {
       const outputName = event.output.fileName;
@@ -209,6 +228,6 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
     commit(candidate);
     return next;
   }
-  return { create, get, list, consume };
+  return { create, get, list, cancel, consume };
 }
 export const finalJobCoordinator = createFinalJobCoordinator();

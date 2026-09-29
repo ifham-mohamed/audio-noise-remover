@@ -20,7 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const raw = await request.text();
     if (new TextEncoder().encode(raw).byteLength > MAX_EVENT_BYTES) return NextResponse.json({ data: null, error: { code: "INVALID_FINAL_JOB_EVENT", message: "The final processing update is too large." }, requestId }, { status: 413 });
     const command = finalJobCommandSchema.parse(JSON.parse(raw));
-    const job = finalJobCoordinator.consume(id, command.event);
+    const job = command.command === "cancel" ? finalJobCoordinator.cancel(id) : finalJobCoordinator.consume(id, command.event);
     return NextResponse.json(finalJobEnvelopeSchema.parse({ data: job, error: null, requestId }), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof ZodError) return NextResponse.json({ data: null, error: { code: "INVALID_FINAL_JOB_EVENT", message: "The final processing update was invalid and was ignored." }, requestId }, { status: 400 });

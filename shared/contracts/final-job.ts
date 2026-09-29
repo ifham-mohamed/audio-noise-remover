@@ -43,9 +43,10 @@ export const createFinalJobRequestSchema = z.strictObject({ media: finalMediaMet
 export const finalJobEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("progress"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), phase: z.string().min(1).max(80), stageId: z.string().min(1), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative() }),
   z.strictObject({ type: z.literal("failed"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), failure: finalJobFailureSchema }),
+  z.strictObject({ type: z.literal("cancelled"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative() }),
   z.strictObject({ type: z.literal("succeeded"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), output: finalJobOutputSchema }),
 ]);
-export const finalJobCommandSchema = z.strictObject({ command: z.literal("event"), event: finalJobEventSchema });
+export const finalJobCommandSchema = z.discriminatedUnion("command", [z.strictObject({ command: z.literal("event"), event: finalJobEventSchema }), z.strictObject({ command: z.literal("cancel") })]);
 export const finalJobEnvelopeSchema = z.object({ data: finalJobSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string() });
 export const finalJobListEnvelopeSchema = z.object({ data: z.array(finalJobSchema).nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string() });
 

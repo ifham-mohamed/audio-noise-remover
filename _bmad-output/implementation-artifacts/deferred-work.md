@@ -32,3 +32,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-produce-and-validate-an-immutable-output.md`
   summary: Decide and implement a safe local source-media retention and deletion policy compatible with retry.
   evidence: Source bytes are retained locally for Story 4.4 retry support. No duration or cleanup rule was approved, and project context prohibits silently choosing a retention policy.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-cancel-active-final-processing-safely.md`
+  summary: Manually verify Narrator speech for final-job cancelling and cancelled status messages.
+  evidence: Browser E2E verifies keyboard activation and live-region text, but automated DOM assertions cannot prove the Windows Narrator actually speaks both distinct states.

@@ -75,6 +75,18 @@ describe("final job contract and coordinator", () => {
     }
   });
 
+  it("requires acknowledgement before cancellation and rejects every late worker event", async () => {
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const job = await coordinator.create({ media, profile });
+    expect(() => coordinator.cancel(job.id)).toThrow(/active final-processing/);
+    coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 1, stageId: "noise-removal", phase: "Denoising", progress: 0.2, elapsedMs: 100 });
+    expect(coordinator.cancel(job.id)).toMatchObject({ state: "cancelling", sequence: 2 });
+    expect(() => coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 3, stageId: "noise-removal", phase: "Denoising", progress: 0.3, elapsedMs: 200 })).toThrow(/late worker updates/);
+    expect(() => coordinator.consume(job.id, { type: "failed", jobId: job.id, sequence: 3, elapsedMs: 200, failure: { code: "PROCESSING_FAILED", message: "late", action: "diagnostics" } })).toThrow(/late worker updates/);
+    expect(coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 3, elapsedMs: 100 })).toMatchObject({ state: "cancelled", sequence: 3 });
+    expect(() => coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 4, elapsedMs: 100 })).toThrow(/stale/);
+  });
+
   it("fails closed when the experimental final executor is unavailable", async () => {
     const coordinator = createFinalJobCoordinator({ canExecuteFinal: () => false, store: memoryStore() });
     await expect(coordinator.create({ media, profile })).rejects.toMatchObject({ code: "RUNTIME_UNAVAILABLE" });
