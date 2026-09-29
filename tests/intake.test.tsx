@@ -72,7 +72,7 @@ describe("intake panel", () => {
     expect(screen.getByText(/Range 25\.00–55\.00 seconds/)).toBeInTheDocument();
     const noise = screen.getByRole("switch", { name: "Noise removal enabled" });
     await user.click(noise);
-    expect(screen.getByText("This preview is from an older profile.")).toBeInTheDocument();
+    expect(screen.getByText("Older profile")).toBeInTheDocument();
   });
 
   it("shows an actionable inspection error without processing controls", async () => {

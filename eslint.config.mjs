@@ -3,5 +3,5 @@ import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
   js.configs.recommended,
-  globalIgnores([".next/**", "node_modules/**", "**/*.ts", "**/*.tsx", "coverage/**"]),
+  globalIgnores([".next/**", "node_modules/**", "**/*.ts", "**/*.tsx", "coverage/**", "public/ffmpeg/**"]),
 ]);

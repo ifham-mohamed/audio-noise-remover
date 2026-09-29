@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-29-2026 04:14
-last_updated: 09-29-2026 14:00
+last_updated: 09-29-2026 14:23
 project: ai-noice-removal
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ development_status:
 
   epic-3: in-progress
   3-1-create-a-bounded-preview: review
-  3-2-show-preview-progress-cancellation-and-failure: backlog
+  3-2-show-preview-progress-cancellation-and-failure: in-progress
   3-3-compare-before-and-after-preview-audio: backlog
   epic-3-retrospective: optional
 

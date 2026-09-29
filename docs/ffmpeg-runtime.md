@@ -1,0 +1,9 @@
+# Bundled local FFmpeg runtime
+
+The browser preview worker loads the checked-in core from `/ffmpeg/`; it does not contact a CDN. The generated core is built by `scripts/ffmpeg-wasm/Dockerfile` using Emscripten 3.1.40, FFmpeg n5.1.4, and ffmpeg.wasm commit `f876f907c7e9b9bf51d4ed0b913a855a63ae63fc`. Build output includes the LGPL license and source archives under `public/ffmpeg/source/` to accompany distribution. Rebuild with Docker Buildx using that Dockerfile and export the artifact stage to `public/ffmpeg`.
+
+The build disables all features before explicitly enabling the WAV, MP3, FLAC, MOV/MP4, and Matroska demuxers; PCM, MP3, AAC, FLAC, ALAC, Opus, and Vorbis audio decoders; file/pipe protocols; and floating-point WAV output. FFmpeg's configure summary reported LGPL 2.1-or-later. No GPL or nonfree option is enabled. Review the included licenses and corresponding source archives before redistribution; this note is not legal advice.
+
+This browser core is a separate, reduced runtime from the architecture's locally provisioned FFmpeg 9.0.2 system binary. The upstream ffmpeg.wasm bindings currently build against FFmpeg 5.1.4; do not describe the browser core as 9.0.2-compatible. This version split is an explicit architecture deviation to resolve before expanding format or final-output claims. In particular, the present core is for local audio extraction/preview, not video re-encoding or final delivery.
+
+The preview worker must continue to fail truthfully after decode until each enabled enhancement stage has a qualified local adapter and a validated playable artifact can be retained for the comparison UI. DPDFNet2 has not passed the current speech-quality gate. Decoded PCM is always removed from the worker's virtual filesystem and is never exposed as an enhanced result.

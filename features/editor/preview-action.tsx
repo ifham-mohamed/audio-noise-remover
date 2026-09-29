@@ -1,42 +1,78 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PreviewSurface } from "@/features/editor/preview-surface";
-import { previewJobEnvelopeSchema, previewJobMatches, type PreviewJob } from "@/shared/contracts/preview";
+import { startPreviewWorker, type PreviewWorkerSession } from "@/features/preview/preview-worker-client";
+import { previewJobEnvelopeSchema, previewJobMatches, type PreviewEvent, type PreviewJob } from "@/shared/contracts/preview";
 import type { MediaMetadata } from "@/shared/contracts/media";
 import type { ProcessingProfile } from "@/shared/contracts/processing";
 
-export function PreviewAction({ media, profile, currentTimeSeconds, onPreviewCreated }: { media: MediaMetadata; profile: ProcessingProfile; currentTimeSeconds: number; onPreviewCreated?: (job: PreviewJob) => void }) {
+async function command(jobId: string, body: unknown) {
+  const response = await fetch(`/api/preview-jobs/${jobId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const envelope = previewJobEnvelopeSchema.parse(await response.json());
+  if (!response.ok || !envelope.data) throw new Error(envelope.error?.message ?? "The local preview update could not be saved.");
+  return envelope.data;
+}
+
+export function PreviewAction({ media, profile, currentTimeSeconds, file, onPreviewCreated }: { media: MediaMetadata; profile: ProcessingProfile; currentTimeSeconds: number; file?: File; onPreviewCreated?: (job: PreviewJob) => void }) {
   const [job, setJob] = useState<PreviewJob>();
   const [error, setError] = useState<string>();
   const [preparing, setPreparing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const worker = useRef<PreviewWorkerSession | undefined>(undefined);
+  useEffect(() => () => { void worker.current?.cancel(); }, []);
   const invalidProfile = !profile || profile.mediaRef !== media.sourceRef;
   const stale = !!job && !previewJobMatches(job, profile, currentTimeSeconds, media.durationSeconds);
 
+  async function relay(event: PreviewEvent) {
+    try { const updated = await command(event.jobId, { command: "event", event }); setJob(updated); onPreviewCreated?.(updated); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "A preview update was rejected."); }
+  }
+
   async function createPreview() {
-    setPreparing(true);
+    if (!file) { setError("Select the original local file again to run a preview."); return; }
+    setPreparing(true); setError(undefined);
     try {
       const response = await fetch("/api/preview-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ media, profile, currentTimeSeconds }) });
       const envelope = previewJobEnvelopeSchema.parse(await response.json());
-      if (!response.ok || !envelope.data) throw new Error(envelope.error?.message ?? "A local preview request could not be prepared.");
-      setJob(envelope.data);
-      onPreviewCreated?.(envelope.data);
-      setError(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not prepare this preview. Check the media and profile settings and try again.");
-    } finally {
-      setPreparing(false);
-    }
+      if (!response.ok || !envelope.data) throw new Error(envelope.error?.message ?? "A local preview could not be queued.");
+      setJob(envelope.data); onPreviewCreated?.(envelope.data);
+      worker.current = startPreviewWorker(envelope.data, file, relay);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not prepare this preview. Check the media and profile settings and try again."); }
+    finally { setPreparing(false); }
+  }
+
+  async function retryPreview() {
+    if (!job || !file) return;
+    setPreparing(true); setError(undefined);
+    try {
+      const next = await command(job.id, { command: "retry" });
+      setJob(next); onPreviewCreated?.(next);
+      worker.current = startPreviewWorker(next, file, relay);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "This preview could not be retried."); }
+    finally { setPreparing(false); }
+  }
+
+  async function cancelPreview() {
+    if (!job || !worker.current || cancelling) return;
+    setCancelling(true);
+    try {
+      const updated = await command(job.id, { command: "cancel" }); setJob(updated); onPreviewCreated?.(updated);
+      await worker.current.cancel(); worker.current = undefined;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The preview could not be cancelled."); }
+    finally { setCancelling(false); }
   }
 
   return <section className="mt-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-raised)] p-5" aria-labelledby="preview-action-title">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--secondary)]">Evaluate your settings</p><h2 id="preview-action-title" className="mt-1 text-xl font-semibold">Try a short preview</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">Creates a local preview request for up to 30 seconds around the playhead using your current profile.</p></div>
-      <Button type="button" onClick={() => void createPreview()} disabled={preparing || invalidProfile || !Number.isFinite(media.durationSeconds) || media.durationSeconds <= 0} className="min-h-11">{preparing ? "Preparing preview…" : "Preview"}</Button>
+      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--secondary)]">Evaluate your settings</p><h2 id="preview-action-title" className="mt-1 text-xl font-semibold">Try a short preview</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">Runs a local preview of up to 30 seconds around the playhead using your current profile.</p></div>
+      <div className="flex gap-2"><Button type="button" onClick={() => void createPreview()} disabled={preparing || cancelling || invalidProfile || !file || !Number.isFinite(media.durationSeconds) || media.durationSeconds <= 0} className="min-h-11">{preparing ? "Preparing preview…" : "Preview"}</Button>
+        {job && ["queued", "running"].includes(job.state) && <Button type="button" variant="outline" onClick={() => void cancelPreview()} disabled={cancelling}>{cancelling ? "Cancelling…" : "Cancel preview"}</Button>}</div>
     </div>
-    {preparing && <p className="mt-3 text-sm text-[var(--muted-foreground)]" role="status">Preparing a local preview request. No media bytes are sent.</p>}
+    {preparing && <p className="mt-3 text-sm text-[var(--muted-foreground)]" role="status">Preparing local preview. Media bytes stay in the browser worker.</p>}
     {error && <p className="mt-4 text-sm text-rose-200" role="alert">{error}</p>}
-    {job && <PreviewSurface job={job} stale={stale} />}
+    {job && <PreviewSurface job={job} stale={stale} cancelling={cancelling} onRetry={() => void retryPreview()} />}
   </section>;
 }
