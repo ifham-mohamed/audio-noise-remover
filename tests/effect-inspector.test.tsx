@@ -1,0 +1,39 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
+import { EffectInspector } from "@/features/editor/effect-inspector";
+
+describe("effect inspector", () => {
+  it("renders independent defaults and an ordered summary", () => {
+    render(<EffectInspector mediaRef="local:interview" />);
+    expect(screen.getByRole("heading", { name: "Tune the enhancement stages" })).toBeInTheDocument();
+    expect(screen.getAllByRole("article").map((article) => article.querySelector("h3")?.textContent)).toEqual(["Noise removal", "Voice clarity", "Loudness normalization", "Echo/reverb reduction"]);
+    expect(screen.getByText(/1\. Noise removal/)).toHaveTextContent("2. Voice clarity");
+    expect(screen.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Loudness normalization enabled" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("updates only the chosen stage, resets it, and omits disabled stages", async () => {
+    const user = userEvent.setup();
+    render(<EffectInspector mediaRef="local:interview" />);
+    await user.click(screen.getByRole("switch", { name: "Noise removal enabled" }));
+    expect(screen.getByText(/1\. Voice clarity/)).toBeInTheDocument();
+    const clarity = screen.getByLabelText("Voice clarity · % intensity");
+    await user.click(clarity);
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(screen.getByText("60%", { selector: "output" })).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Reset" })[1]);
+    expect(screen.getByText("50%", { selector: "output" })).toBeInTheDocument();
+  });
+
+  it("blocks activation when a required capability is unavailable", async () => {
+    const user = userEvent.setup();
+    render(<EffectInspector mediaRef="local:interview" capabilities={{ "noise-removal": { status: "unavailable", cpuSafe: false, message: "Install the local speech model." } }} />);
+    const toggle = screen.getByRole("switch", { name: "Noise removal enabled" });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Install the local speech model.")).toBeInTheDocument();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+});
