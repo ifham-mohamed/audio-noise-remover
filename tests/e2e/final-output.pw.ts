@@ -59,8 +59,14 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   expect(signalChange).toBe(true);
 });
 
-test("fails closed when the pinned model is unavailable and retains no final output", async ({ page }) => {
-  await page.route("**/api/preview-model", (route) => route.fulfill({ status: 404, body: "missing local model" }));
+test("retries model-unavailable output as a new linked local attempt", async ({ page }) => {
+  let failFirstModelRequest = true;
+  const retryBodies: string[] = [];
+  const retryOrigins = new Set<string>();
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/final-jobs") && request.method() === "POST") { retryBodies.push(request.postData() ?? ""); retryOrigins.add(new URL(request.url()).origin); }
+  });
+  await page.route("**/api/preview-model", async (route) => { if (failFirstModelRequest) { failFirstModelRequest = false; await route.fulfill({ status: 404, body: "missing local model" }); } else await route.continue(); });
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
@@ -79,6 +85,25 @@ test("fails closed when the pinned model is unavailable and retains no final out
     };
   }));
   expect(outputCount).toBe(0);
+  const failedAttemptId = new URL(page.url()).pathname.split("/").at(-1)!;
+  const retryButton = page.getByRole("button", { name: "Retry as a new attempt" });
+  await retryButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
+  const retryDetails = await page.evaluate(async (priorId) => {
+    const currentId = location.pathname.split("/").at(-1)!;
+    const [currentResponse, previousResponse] = await Promise.all([fetch(`/api/final-jobs/${currentId}`), fetch(`/api/final-jobs/${priorId}`)]);
+    return { current: (await currentResponse.json()).data, previous: (await previousResponse.json()).data };
+  }, failedAttemptId);
+  expect(retryDetails.current.id).not.toBe(failedAttemptId);
+  expect(retryDetails.current.retryOf).toBe(failedAttemptId);
+  expect(retryDetails.current.state).toBe("succeeded");
+  expect(retryDetails.previous.state).toBe("failed");
+  await expect(page.getByRole("link", { name: `attempt ${failedAttemptId.slice(0, 8)}` })).toBeVisible();
+  const retryRequest = retryBodies.map((body) => JSON.parse(body)).find((body) => body.retryOfJobId === failedAttemptId);
+  expect(retryRequest).toMatchObject({ retryOfJobId: failedAttemptId, clientAttemptId: retryDetails.current.id });
+  expect(JSON.stringify(retryRequest)).not.toContain("RIFF");
+  expect([...retryOrigins]).toEqual(["http://127.0.0.1:3100"]);
 });
 
 test("fails closed when the pinned model bytes do not match the verified model", async ({ page }) => {
@@ -98,6 +123,55 @@ test("fails closed when the pinned model bytes do not match the verified model",
     };
   }));
   expect(outputCount).toBe(0);
+});
+
+test("does not create a retry attempt when the original source is missing locally", async ({ page }) => {
+  await page.route("**/api/preview-model", (route) => route.fulfill({ status: 404, body: "missing local model" }));
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
+  const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
+  const failedAttemptId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await page.evaluate(async (sourceRef) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("ai-noice-removal-final-artifacts", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    try { await new Promise<void>((resolve, reject) => { const tx = db.transaction("sources", "readwrite"); tx.objectStore("sources").delete(sourceRef); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); } finally { db.close(); }
+  }, failedAttemptId);
+  const retryButton = page.getByRole("button", { name: "Retry as a new attempt" });
+  await retryButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert").filter({ hasText: "The original file is no longer retained" })).toBeVisible();
+  const after = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
+  expect(after).toBe(before);
+});
+
+test("does not create a retry attempt when retained source bytes are unreadable", async ({ page }) => {
+  await page.route("**/api/preview-model", (route) => route.fulfill({ status: 404, body: "missing local model" }));
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
+  const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
+  const failedAttemptId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await page.evaluate(async (sourceRef) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("ai-noice-removal-final-artifacts", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("sources", "readwrite"); const store = tx.objectStore("sources"); const get = store.get(sourceRef);
+        get.onsuccess = () => { const record = get.result; const bytes = new Uint8Array(record.bytes); bytes.set([78, 79, 80, 69], 0); record.bytes = bytes.buffer; store.put(record); };
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+      });
+    } finally { db.close(); }
+  }, failedAttemptId);
+  await page.getByRole("button", { name: "Retry as a new attempt" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert").filter({ hasText: "not a readable RIFF/WAVE file" })).toBeVisible();
+  const after = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
+  expect(after).toBe(before);
 });
 
 test("cancels an active local worker and retains no final artifact", async ({ page }) => {

@@ -15,6 +15,7 @@ export const finalJobStageSchema = z.strictObject({ id: z.string().min(1), label
 export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: z.literal("audio/wav"), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) });
 export const finalJobSchema = z.strictObject({
   id: finalJobIdSchema,
+  retryOf: finalJobIdSchema.optional(),
   kind: z.literal("final"),
   state: finalJobStateSchema,
   sequence: z.number().int().nonnegative(),
@@ -28,6 +29,7 @@ export const finalJobSchema = z.strictObject({
   elapsedMs: z.number().int().nonnegative(),
   failure: finalJobFailureSchema.optional(),
   output: finalJobOutputSchema.optional(),
+  recoveryNotice: z.string().min(1).max(240).optional(),
 }).superRefine((job, context) => {
   if (job.profile.mediaRef !== job.media.sourceRef) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "mediaRef"], message: "The profile must reference the selected source." });
   if (job.profile.output.mediaKind !== job.media.mediaKind) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "mediaKind"], message: "The output type must match the selected source." });
@@ -39,7 +41,7 @@ export const finalJobSchema = z.strictObject({
   const enabled = job.profile.stages.filter((stage) => stage.enabled).map((stage) => stage.id);
   if (enabled.length !== job.enabledStages.length || enabled.some((id, index) => id !== job.enabledStages[index]?.id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["enabledStages"], message: "Active stages must exactly match the enabled profile stages in order." });
 });
-export const createFinalJobRequestSchema = z.strictObject({ media: finalMediaMetadataSchema, profile: processingProfileSchema.strict(), clientAttemptId: finalJobIdSchema.optional() });
+export const createFinalJobRequestSchema = z.strictObject({ media: finalMediaMetadataSchema, profile: processingProfileSchema.strict(), clientAttemptId: finalJobIdSchema.optional(), retryOfJobId: finalJobIdSchema.optional() });
 export const finalJobEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("progress"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), phase: z.string().min(1).max(80), stageId: z.string().min(1), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative() }),
   z.strictObject({ type: z.literal("failed"), jobId: finalJobIdSchema, sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), failure: finalJobFailureSchema }),
@@ -80,7 +82,7 @@ export class FinalJobError extends Error {
   constructor(readonly code: FinalJobErrorCode, message: string) { super(message); this.name = "FinalJobError"; }
 }
 
-export function createFinalJob(mediaInput: unknown, profileInput: unknown, options: { id?: string; createdAt?: string } = {}): FinalJob {
+export function createFinalJob(mediaInput: unknown, profileInput: unknown, options: { id?: string; retryOf?: string; createdAt?: string } = {}): FinalJob {
   if (typeof profileInput === "object" && profileInput !== null && "output" in profileInput && typeof profileInput.output === "object" && profileInput.output !== null && "destination" in profileInput.output && typeof profileInput.output.destination === "object" && profileInput.output.destination !== null && "targetRef" in profileInput.output.destination && profileInput.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const request = createFinalJobRequestSchema.safeParse({ media: mediaInput, profile: profileInput });
   if (!request.success) throw new FinalJobError("INVALID_PROFILE", "Review the selected media and output settings, then try again.");
@@ -91,5 +93,5 @@ export function createFinalJob(mediaInput: unknown, profileInput: unknown, optio
   if (!stream.present || profile.mediaRef !== media.sourceRef || profile.selectedAudioStreamId !== selected || profile.output.mediaKind !== media.mediaKind) throw new FinalJobError("INVALID_MEDIA", "The selected media or audio stream is no longer valid.");
   if (profile.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const now = options.createdAt ?? new Date().toISOString();
-  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
+  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), retryOf: options.retryOf, kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
 }

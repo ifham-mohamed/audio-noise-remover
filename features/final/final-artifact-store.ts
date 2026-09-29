@@ -145,8 +145,11 @@ export async function openFinalSource(sourceRef: string): Promise<File | undefin
   try {
     const record = await requestResult(db.transaction(sourceStoreName, "readonly").objectStore(sourceStoreName).get(sourceRef)) as StoredSource | undefined;
     if (!record) return undefined;
-    if (!record.bytes || record.bytes.byteLength > FINAL_SOURCE_MAX_BYTES || typeof record.name !== "string") throw new Error("The retained original file is invalid or exceeds the local storage limit.");
-    return new File([record.bytes], record.name, { type: record.type, lastModified: record.lastModified });
+    const storedBytes = record.bytes as ArrayBuffer | undefined;
+    if (!storedBytes || typeof storedBytes.byteLength !== "number" || storedBytes.byteLength === 0 || storedBytes.byteLength > FINAL_SOURCE_MAX_BYTES || typeof record.name !== "string" || !record.name.trim() || typeof record.type !== "string" || !Number.isFinite(record.lastModified)) throw new Error("The retained original file is invalid or exceeds the local storage limit.");
+    const source = new File([storedBytes], record.name, { type: record.type, lastModified: record.lastModified });
+    if (source.size !== storedBytes.byteLength) throw new Error("The retained original file is truncated or unreadable.");
+    return source;
   } finally { db.close(); }
 }
 

@@ -30,6 +30,6 @@ describe("final job monitor", () => {
     expect(await screen.findByText(/Stage: noise removal · Elapsed: 0:08/)).toBeInTheDocument();
     expect(screen.getByText("Overall stage progress: 42%")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Final processing progress" })).toHaveAttribute("aria-valuetext", "42 percent");
-    expect(screen.getByText(/noise removal · 0:08 elapsed/)).toBeInTheDocument();
+    expect(screen.getByText(/Stage: noise removal · Elapsed: 0:08/)).toBeInTheDocument();
   });
 });

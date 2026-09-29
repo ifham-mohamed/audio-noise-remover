@@ -68,7 +68,7 @@ describe("final job contract and coordinator", () => {
       expect(() => coordinator.consume(job.id, { ...progress, sequence: 3, stageId: "loudness-normalization" })).toThrow(/active enabled stage/);
       expect(coordinator.get(job.id)).toMatchObject({ sequence: 2, progress: 0.2 });
       const reopened = createFinalJobCoordinator({ store: createFinalJobFileStore(filePath), canExecuteFinal: () => true });
-      expect(reopened.get(job.id)).toMatchObject({ state: "running", sequence: 2, progress: 0.2, enabledStages: job.enabledStages });
+      expect(reopened.get(job.id)).toMatchObject({ state: "failed", sequence: 3, failure: { code: "PROCESSING_FAILED" }, enabledStages: job.enabledStages });
     } finally {
       if (!directory.startsWith(os.tmpdir())) throw new Error("Refusing to remove a test directory outside OS temp.");
       rmSync(directory, { recursive: true, force: true });
@@ -85,6 +85,52 @@ describe("final job contract and coordinator", () => {
     expect(() => coordinator.consume(job.id, { type: "failed", jobId: job.id, sequence: 3, elapsedMs: 200, failure: { code: "PROCESSING_FAILED", message: "late", action: "diagnostics" } })).toThrow(/late worker updates/);
     expect(coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 3, elapsedMs: 100 })).toMatchObject({ state: "cancelled", sequence: 3 });
     expect(() => coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 4, elapsedMs: 100 })).toThrow(/stale/);
+  });
+
+  it("recovers persisted queued and running jobs as failed and cancelling jobs as cancelled", () => {
+    const seed = createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000010" });
+    const queued = seed;
+    const running = { ...createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000011" }), state: "running" as const, sequence: 1, phase: "noise-removal", progress: 0.4 };
+    const cancelling = { ...createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000012" }), state: "cancelling" as const, sequence: 2 };
+    const store = memoryStore();
+    store.save([queued, running, cancelling]);
+    const recovered = createFinalJobCoordinator({ store, now: () => "2026-09-30T10:00:00.000Z" });
+    expect(recovered.get(queued.id)).toMatchObject({ state: "failed", sequence: 1, failure: { code: "PROCESSING_FAILED" } });
+    expect(recovered.get(running.id)).toMatchObject({ state: "failed", sequence: 2, failure: { code: "PROCESSING_FAILED" } });
+    expect(recovered.get(cancelling.id)).toMatchObject({ state: "cancelled", sequence: 3, recoveryNotice: expect.stringContaining("application restarted") });
+    expect(store.load().map((job) => job.state)).toEqual(["failed", "failed", "cancelled"]);
+  });
+
+  it("creates retry as a new linked attempt and preserves the failed predecessor", async () => {
+    const coordinator = createFinalJobCoordinator({ canExecuteFinal: () => true, store: memoryStore() });
+    const first = await coordinator.create({ media, profile });
+    coordinator.consume(first.id, { type: "progress", jobId: first.id, sequence: 1, phase: "noise-removal", stageId: "noise-removal", progress: 0.2, elapsedMs: 10 });
+    const failed = coordinator.consume(first.id, { type: "failed", jobId: first.id, sequence: 2, elapsedMs: 20, failure: { code: "MODEL_UNAVAILABLE", message: "missing model", action: "diagnostics" } });
+    const retryId = "00000000-0000-4000-8000-000000000013";
+    const retry = await coordinator.create({ media: first.media, profile: first.profile, retryOfJobId: first.id, clientAttemptId: retryId });
+    expect(retry).toMatchObject({ id: retryId, retryOf: first.id, state: "queued", media: first.media, profile: first.profile });
+    expect(coordinator.get(first.id)).toEqual(failed);
+    const exposed = coordinator.get(first.id);
+    exposed.media.sourceName = "mutated.wav";
+    exposed.profile.stages[0]!.enabled = false;
+    expect(coordinator.get(first.id)).toEqual(failed);
+    await expect(coordinator.create({ media: first.media, profile: { ...first.profile, mediaRef: "changed" }, retryOfJobId: first.id })).rejects.toMatchObject({ code: "INVALID_TRANSITION" });
+    await expect(coordinator.create({ media: first.media, profile: first.profile, retryOfJobId: first.id })).rejects.toThrow(/already has a linked retry/);
+  });
+
+  it("reserves a predecessor against concurrent retry creation", async () => {
+    const resolvers: Array<(ready: boolean) => void> = [];
+    let capabilityChecks = 0;
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => { capabilityChecks += 1; return capabilityChecks === 1 ? true : new Promise<boolean>((resolve) => resolvers.push(resolve)); } });
+    const original = await coordinator.create({ media, profile });
+    coordinator.consume(original.id, { type: "progress", jobId: original.id, sequence: 1, phase: "noise-removal", stageId: "noise-removal", progress: 0.1, elapsedMs: 10 });
+    coordinator.consume(original.id, { type: "failed", jobId: original.id, sequence: 2, elapsedMs: 20, failure: { code: "PROCESSING_FAILED", message: "test failure" } });
+    const retryRequest = { media: original.media, profile: original.profile, retryOfJobId: original.id };
+    const firstRetry = coordinator.create({ ...retryRequest, clientAttemptId: "00000000-0000-4000-8000-000000000014" });
+    await Promise.resolve(); await Promise.resolve();
+    await expect(coordinator.create({ ...retryRequest, clientAttemptId: "00000000-0000-4000-8000-000000000015" })).rejects.toThrow(/already has a linked retry/);
+    resolvers.forEach((resolve) => resolve(true));
+    await expect(firstRetry).resolves.toMatchObject({ retryOf: original.id, state: "queued" });
   });
 
   it("fails closed when the experimental final executor is unavailable", async () => {

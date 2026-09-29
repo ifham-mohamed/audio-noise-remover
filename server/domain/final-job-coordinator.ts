@@ -23,6 +23,7 @@ const terminal = new Set<FinalJob["state"]>([
   "succeeded",
   "failed",
 ]);
+function cloneJob(job: FinalJob): FinalJob { return structuredClone(job); }
 export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
   const store = dependencies.store ?? createFinalJobFileStore();
   const now = dependencies.now ?? (() => new Date().toISOString());
@@ -33,11 +34,20 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
   } catch {
     storeReady = false;
   }
-  const jobs = new Map<string, FinalJob>(
-    storedJobs.map((job) => [job.id, job]),
-  );
+  let recoveredAnything = false;
+  const restored = storedJobs.map((stored) => {
+    const job = cloneJob(stored);
+    if (job.state === "cancelling") { recoveredAnything = true; return { ...job, state: "cancelled" as const, sequence: job.sequence + 1, updatedAt: now(), progress: undefined, recoveryNotice: "The local application restarted while cancellation was finishing. No final output was retained." }; }
+    if (job.state === "queued" || job.state === "running") { recoveredAnything = true; return { ...job, state: "failed" as const, sequence: job.sequence + 1, updatedAt: now(), progress: undefined, failure: { code: "PROCESSING_FAILED" as const, message: "The local application restarted before this attempt finished. Retry to start a new linked attempt.", action: "diagnostics" as const } }; }
+    return job;
+  });
+  const jobs = new Map<string, FinalJob>(restored.map((job) => [job.id, job]));
+  if (storeReady && recoveredAnything) {
+    try { store.save(restored); } catch { storeReady = false; }
+  }
   let pendingCreates = 0;
   const pendingAttemptIds = new Set<string>();
+  const pendingRetryParents = new Set<string>();
   function assertStoreReady() {
     if (!storeReady)
       throw new FinalJobError(
@@ -46,9 +56,9 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       );
   }
   function commit(candidate: Map<string, FinalJob>) {
-    store.save([...candidate.values()]);
+    store.save([...candidate.values()].map(cloneJob));
     jobs.clear();
-    for (const [id, job] of candidate) jobs.set(id, job);
+    for (const [id, job] of candidate) jobs.set(id, cloneJob(job));
   }
   function assertCapacity() {
     if (
@@ -64,11 +74,18 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
   async function create(input: unknown) {
     assertStoreReady();
     const request = createFinalJobRequestSchema.parse(input);
+    const previous = request.retryOfJobId ? get(request.retryOfJobId) : undefined;
+    if (previous) {
+      if (previous.state !== "failed" && previous.state !== "cancelled") throw new FinalJobError("INVALID_TRANSITION", "Only a failed or cancelled attempt can be retried.");
+      if (JSON.stringify(previous.media) !== JSON.stringify(request.media) || JSON.stringify(previous.profile) !== JSON.stringify(request.profile)) throw new FinalJobError("INVALID_TRANSITION", "A retry must preserve the previous attempt’s original media and processing profile.");
+      if (pendingRetryParents.has(previous.id) || [...jobs.values()].some((candidate) => candidate.retryOf === previous.id)) throw new FinalJobError("INVALID_TRANSITION", "This attempt already has a linked retry. Retry the latest failed or cancelled attempt instead.");
+    }
     if (request.clientAttemptId && (jobs.has(request.clientAttemptId) || pendingAttemptIds.has(request.clientAttemptId)))
       throw new FinalJobError("INVALID_TRANSITION", "This final attempt identifier was already used. Start a new attempt instead.");
     assertCapacity();
     pendingCreates += 1;
     if (request.clientAttemptId) pendingAttemptIds.add(request.clientAttemptId);
+    if (request.retryOfJobId) pendingRetryParents.add(request.retryOfJobId);
     try {
       const canExecute =
         dependencies.canExecuteFinal ??
@@ -79,14 +96,15 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
           "RUNTIME_UNAVAILABLE",
           "This experimental build supports only short WAV audio with noise removal enabled and WAV output. Unsupported formats, longer files, and other effects fail safely; your source remains unchanged.",
         );
-      const job = createFinalJob(request.media, request.profile, { id: request.clientAttemptId });
+      const job = createFinalJob(request.media, request.profile, { id: request.clientAttemptId, retryOf: request.retryOfJobId });
       const candidate = new Map(jobs);
       candidate.set(job.id, job);
       commit(candidate);
-      return job;
+      return cloneJob(job);
     } finally {
       pendingCreates -= 1;
       if (request.clientAttemptId) pendingAttemptIds.delete(request.clientAttemptId);
+      if (request.retryOfJobId) pendingRetryParents.delete(request.retryOfJobId);
     }
   }
   function get(id: string) {
@@ -97,13 +115,11 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
         "JOB_NOT_FOUND",
         "This final processing attempt is no longer available.",
       );
-    return job;
+    return cloneJob(job);
   }
   function list() {
     assertStoreReady();
-    return [...jobs.values()].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+    return [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(cloneJob);
   }
   function cancel(id: string) {
     assertStoreReady();
@@ -113,7 +129,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
     const candidate = new Map(jobs);
     candidate.set(id, next);
     commit(candidate);
-    return next;
+    return cloneJob(next);
   }
   function consume(id: string, input: unknown) {
     assertStoreReady();
@@ -141,7 +157,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       const candidate = new Map(jobs);
       candidate.set(id, next);
       commit(candidate);
-      return next;
+      return cloneJob(next);
     }
     const stamp = now();
     if (event.type === "succeeded") {
@@ -171,7 +187,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       const candidate = new Map(jobs);
       candidate.set(id, next);
       commit(candidate);
-      return next;
+      return cloneJob(next);
     }
     if (event.type === "progress") {
       const stageIndex = current.enabledStages.findIndex(
@@ -226,7 +242,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
     const candidate = new Map(jobs);
     candidate.set(id, next);
     commit(candidate);
-    return next;
+    return cloneJob(next);
   }
   return { create, get, list, cancel, consume };
 }
