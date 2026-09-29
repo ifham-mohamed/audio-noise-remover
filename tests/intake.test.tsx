@@ -42,6 +42,7 @@ describe("intake panel", () => {
     expect(screen.getByText("12 B")).toBeInTheDocument();
     expect(screen.getByText("Local source")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Tune the enhancement stages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Where should this go?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("button", { name: "Choose a local audio or video file" })).toBeInTheDocument();
   });

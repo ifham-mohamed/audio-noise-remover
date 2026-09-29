@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProcessingProfile, defaultProcessingStages, normalizeProcessingProfile, processingProfileSchema } from "@/shared/contracts/processing";
+import { defaultOutputProfile, defaultProcessingProfile, defaultProcessingStages, normalizeProcessingProfile, outputProfileSchema, processingProfileSchema } from "@/shared/contracts/processing";
 
 describe("processing profile contract", () => {
   it("creates explicit speech defaults in canonical order", () => {
@@ -19,5 +19,13 @@ describe("processing profile contract", () => {
   it("rejects invalid parameter ranges and falls back safely for stale drafts", () => {
     expect(processingProfileSchema.safeParse({ mediaRef: "local:clip", stages: [{ id: "noise-removal", enabled: true, parameters: { intensity: 140 } }] }).success).toBe(false);
     expect(normalizeProcessingProfile({ mediaRef: "local:clip", stages: [{ id: "unknown", enabled: true, parameters: {} }] }).mediaRef).toBe("local:clip");
+  });
+
+  it("defines media-aware output defaults and protects unsafe targets", () => {
+    expect(defaultOutputProfile("local:voice", "audio").format).toBe("audio-wav");
+    expect(defaultOutputProfile("local:meeting", "video", "mov").format).toBe("source-video");
+    expect(defaultOutputProfile("local:meeting", "video", "mp4").format).toBe("mp4");
+    const unsafe = { ...defaultOutputProfile("local:voice"), destination: { ...defaultOutputProfile("local:voice").destination, targetRef: "source" } };
+    expect(outputProfileSchema.safeParse(unsafe).success).toBe(false);
   });
 });
