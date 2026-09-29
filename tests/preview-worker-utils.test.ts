@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
 import { createPreviewJob, MAX_PREVIEW_INPUT_BYTES } from "@/shared/contracts/preview";
-import { buildPreviewDecodeArgs, getPreviewAudioStreamIndex, isPreviewInputSizeAllowed } from "@/features/preview/preview-worker-utils";
+import { buildPreviewDecodeArgs, getPreviewAudioStreamIndex, isPreviewInputSizeAllowed, isPreviewResourceExhaustion } from "@/features/preview/preview-worker-utils";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
 const video: MediaMetadata = {
@@ -26,7 +26,9 @@ describe("preview worker utilities", () => {
     const streamIndex = getPreviewAudioStreamIndex(job);
 
     expect(streamIndex).toBe(1);
-    expect(buildPreviewDecodeArgs(job.range, streamIndex, "/input.mov", "/preview.wav")).toContain("0:a:1");
+    const args = buildPreviewDecodeArgs(job.range, streamIndex, "/input.mov", "/preview.wav");
+    expect(args).toContain("0:a:1");
+    expect(args.slice(args.indexOf("-ac"), args.indexOf("-ac") + 2)).toEqual(["-ac", "1"]);
   });
 
   it("uses the only known track when detailed stream enumeration is unavailable", () => {
@@ -42,5 +44,11 @@ describe("preview worker utilities", () => {
     expect(isPreviewInputSizeAllowed(MAX_PREVIEW_INPUT_BYTES + 1)).toBe(false);
     expect(isPreviewInputSizeAllowed(0)).toBe(false);
     expect(isPreviewInputSizeAllowed(Number.POSITIVE_INFINITY)).toBe(false);
+  });
+
+  it("recognizes memory and browser quota failures without classifying ordinary errors as resource exhaustion", () => {
+    expect(isPreviewResourceExhaustion(new RangeError("Array buffer allocation failed"))).toBe(true);
+    expect(isPreviewResourceExhaustion(new DOMException("Storage full", "QuotaExceededError"))).toBe(true);
+    expect(isPreviewResourceExhaustion(new Error("Unsupported codec"))).toBe(false);
   });
 });

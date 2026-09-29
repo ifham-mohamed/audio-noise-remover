@@ -13,7 +13,7 @@ export const previewRangeSchema = z.object({ startSeconds: z.number().finite().n
 });
 export const previewStateSchema = z.enum(["queued", "running", "cancelling", "cancelled", "succeeded", "failed"]);
 export const previewArtifactSchema = z.object({ id: z.string().uuid(), mimeType: z.string().min(1), sizeBytes: z.number().int().positive(), durationSeconds: z.number().positive() });
-export const previewFailureSchema = z.object({ code: z.enum(["UNSUPPORTED_MEDIA", "MODEL_UNAVAILABLE", "RUNTIME_UNAVAILABLE", "DISK_SPACE_LOW", "PROCESSING_FAILED", "CANCELLED"]), message: z.string().min(1), action: z.enum(["retry", "settings", "diagnostics"]).optional() });
+export const previewFailureSchema = z.object({ code: z.enum(["UNSUPPORTED_MEDIA", "MODEL_UNAVAILABLE", "RUNTIME_UNAVAILABLE", "RESOURCE_EXHAUSTED", "DISK_SPACE_LOW", "PROCESSING_FAILED", "CANCELLED"]), message: z.string().min(1), action: z.enum(["retry", "settings", "diagnostics", "effects"]).optional() });
 export const previewJobSchema = z.object({
   id: z.string().uuid(), kind: z.literal("preview"), state: previewStateSchema, sequence: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
   media: mediaMetadataSchema, profile: processingProfileSchema, range: previewRangeSchema, modelVersions: z.record(z.string(), z.string()).default({}), retryOf: z.string().uuid().optional(),

@@ -53,6 +53,7 @@ try {
     throw new Error(`Local WAV decode/trim validation failed (exit=${core.ret}, bytes=${decoded.byteLength}).`);
   }
   const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+  console.log(`Decoded WAV format tag ${view.getUint16(20, true)}, channels ${view.getUint16(22, true)}, bits ${view.getUint16(34, true)}.`);
   let dataBytes = 0;
   for (let offset = 12; offset + 8 <= decoded.byteLength;) {
     const chunkName = String.fromCharCode(...decoded.subarray(offset, offset + 4));

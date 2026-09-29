@@ -4,6 +4,9 @@ import { createPreviewJob, type PreviewEvent } from "@/shared/contracts/preview"
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
+const artifactStorage = vi.hoisted(() => ({ retain: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) }));
+vi.mock("@/features/preview/preview-artifact-store", () => ({ retainPreviewArtifact: artifactStorage.retain, removePreviewArtifact: artifactStorage.remove }));
+
 const media: MediaMetadata = {
   sourceName: "interview.wav",
   sourceRef: "local:interview.wav:12:1",
@@ -35,7 +38,7 @@ function setup() {
   return { job, onEvent, session, worker: WorkerDouble.instances[0] };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); artifactStorage.retain.mockClear(); artifactStorage.remove.mockClear(); });
 
 describe("preview worker client", () => {
   it("hands the selected file to a same-origin module worker and relays ordered events", async () => {
@@ -64,6 +67,55 @@ describe("preview worker client", () => {
     expect(worker.terminated).toBe(true);
   });
 
+  it("retains validated enhancement bytes before reporting success to the coordinator", async () => {
+    const { job, onEvent, worker } = setup();
+    const blob = new Blob(["enhanced wav"], { type: "audio/wav" });
+    const artifact = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: blob.size, durationSeconds: 1 };
+    artifactStorage.retain.mockImplementationOnce(async () => {
+      expect(onEvent).not.toHaveBeenCalled();
+    });
+    worker.send({ type: "succeeded", jobId: job.id, sequence: 1, elapsedMs: 31, artifact, artifactBlob: blob, artifactSource: "enhancement-adapter" });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce());
+    expect(artifactStorage.retain).toHaveBeenCalledWith(artifact, blob);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "succeeded", artifact }));
+    expect(Object.keys(onEvent.mock.calls[0][0])).not.toContain("artifactBlob");
+    expect(worker.terminated).toBe(true);
+  });
+
+  it("refuses worker success without enhanced artifact bytes and provenance", async () => {
+    const { job, onEvent, worker } = setup();
+    const artifact = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: 100, durationSeconds: 1 };
+    worker.send({ type: "succeeded", jobId: job.id, sequence: 1, elapsedMs: 31, artifact });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce());
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "failed", sequence: 1, failure: expect.objectContaining({ code: "PROCESSING_FAILED" }) }));
+    expect(artifactStorage.retain).not.toHaveBeenCalled();
+  });
+
+  it("cleans up any partial local retention and reports failure when validation or storage fails", async () => {
+    const { job, onEvent, worker } = setup();
+    const blob = new Blob(["enhanced wav"], { type: "audio/wav" });
+    const artifact = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: blob.size, durationSeconds: 1 };
+    artifactStorage.retain.mockRejectedValueOnce(new Error("validation failed after partial write"));
+    worker.send({ type: "succeeded", jobId: job.id, sequence: 1, elapsedMs: 31, artifact, artifactBlob: blob, artifactSource: "enhancement-adapter" });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce());
+    expect(artifactStorage.remove).toHaveBeenCalledWith(artifact.id);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "failed", sequence: 1, failure: expect.objectContaining({ code: "PROCESSING_FAILED" }) }));
+  });
+
+  it("deletes retained bytes if the coordinator rejects the success event", async () => {
+    WorkerDouble.instances = [];
+    vi.stubGlobal("Worker", WorkerDouble);
+    const job = createPreviewJob(media, defaultProcessingProfile(media.sourceRef, "audio-0"), 45, { id: "00000000-0000-4000-8000-000000000001" });
+    const blob = new Blob(["enhanced wav"], { type: "audio/wav" });
+    const artifact = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: blob.size, durationSeconds: 1 };
+    const onEvent = vi.fn(async () => false);
+    const session = startPreviewWorker(job, new File(["audio"], "interview.wav", { type: "audio/wav" }), onEvent);
+    const workerInstance = WorkerDouble.instances.at(-1)!;
+    workerInstance.send({ type: "succeeded", jobId: job.id, sequence: 1, elapsedMs: 31, artifact, artifactBlob: blob, artifactSource: "enhancement-adapter" });
+    await session.cancel();
+    expect(artifactStorage.remove).toHaveBeenCalledWith(artifact.id);
+  });
+
   it("waits for worker cleanup and terminal cancellation before resolving cancel", async () => {
     const { job, onEvent, session, worker } = setup();
     let settled = false;
@@ -77,6 +129,18 @@ describe("preview worker client", () => {
     expect(worker.terminated).toBe(true);
   });
 
+  it("discards in-flight progress after cancellation while preserving the terminal sequence", async () => {
+    const { job, onEvent, session, worker } = setup();
+    worker.send({ type: "progress", jobId: job.id, sequence: 1, phase: "Decoding", progress: 0.2, elapsedMs: 1 });
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce());
+    const stopped = session.cancel();
+    worker.send({ type: "progress", jobId: job.id, sequence: 2, phase: "Decoding", progress: 0.5, elapsedMs: 2 });
+    worker.send({ type: "cancelled", jobId: job.id, sequence: 3, elapsedMs: 3 });
+    await stopped;
+    expect(onEvent.mock.calls.map(([event]) => [event.type, event.sequence])).toEqual([["progress", 1], ["cancelled", 3]]);
+    expect(worker.posted.filter((message) => (message as { type?: string }).type === "cancel")).toHaveLength(1);
+  });
+
   it("reports a worker construction failure as a safe terminal runtime error", async () => {
     vi.stubGlobal("Worker", class { constructor() { throw new Error("worker unavailable"); } });
     const job = createPreviewJob(media, defaultProcessingProfile(media.sourceRef, "audio-0"), 45, { id: "00000000-0000-4000-8000-000000000001" });
@@ -84,6 +148,22 @@ describe("preview worker client", () => {
     const session = startPreviewWorker(job, new File(["audio"], "interview.wav"), onEvent);
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "failed", failure: expect.objectContaining({ code: "RUNTIME_UNAVAILABLE", action: "diagnostics" }) })));
     await session.cancel();
+  });
+
+  it("settles the job when posting the start message throws", async () => {
+    class ThrowingWorker extends WorkerDouble {
+      postMessage(message: unknown) {
+        if ((message as { type?: string }).type === "start") throw new DOMException("Could not clone message", "DataCloneError");
+        super.postMessage(message);
+      }
+    }
+    vi.stubGlobal("Worker", ThrowingWorker);
+    const job = createPreviewJob(media, defaultProcessingProfile(media.sourceRef, "audio-0"), 45, { id: "00000000-0000-4000-8000-000000000001" });
+    const onEvent = vi.fn(async (_event: PreviewEvent) => undefined);
+    const session = startPreviewWorker(job, new File(["audio"], "interview.wav"), onEvent);
+    await session.cancel();
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "failed", jobId: job.id, sequence: 1, failure: expect.objectContaining({ code: "RUNTIME_UNAVAILABLE" }) }));
+    expect(WorkerDouble.instances[0].terminated).toBe(true);
   });
 
   it("turns a worker crash into a sequenced safe failure", async () => {
