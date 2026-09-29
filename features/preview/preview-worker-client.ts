@@ -1,9 +1,9 @@
 import { previewEventSchema, type PreviewEvent, type PreviewJob } from "@/shared/contracts/preview";
 import { getPreviewAudioStreamIndex } from "@/features/preview/preview-worker-utils";
-import { removePreviewArtifact, retainPreviewArtifact } from "@/features/preview/preview-artifact-store";
+import { removePreviewArtifactPair, retainPreviewArtifactPair } from "@/features/preview/preview-artifact-store";
 
 export type PreviewWorkerSession = { cancel: () => Promise<void> };
-type PreviewWorkerSuccessMessage = { artifactBlob?: unknown; artifactSource?: unknown };
+type PreviewWorkerSuccessMessage = { artifactBlob?: unknown; comparisonSourceBlob?: unknown; artifactSource?: unknown };
 
 function artifactHandoffFailure(event: Extract<PreviewEvent, { type: "succeeded" }>): PreviewEvent {
   return { type: "failed", jobId: event.jobId, sequence: event.sequence, elapsedMs: event.elapsedMs, failure: { code: "PROCESSING_FAILED", message: "The enhanced preview could not be validated or retained locally. No playable preview was published.", action: "retry" } };
@@ -33,16 +33,18 @@ export function startPreviewWorker(job: PreviewJob, file: File, onEvent: (event:
         if (cancelRequested && event.type === "progress") return;
         let acceptedEvent: PreviewEvent = event;
         let retainedArtifactId: string | undefined;
+        let retainedSourceArtifactId: string | undefined;
         if (event.type === "succeeded") {
           const handoff = message.data as PreviewWorkerSuccessMessage;
-          if (!(handoff.artifactBlob instanceof Blob) || handoff.artifactSource !== "enhancement-adapter") {
+          if (!(handoff.artifactBlob instanceof Blob) || !(handoff.comparisonSourceBlob instanceof Blob) || !event.comparisonSourceArtifact || handoff.artifactSource !== "enhancement-adapter") {
             acceptedEvent = artifactHandoffFailure(event);
           } else {
             try {
-              await retainPreviewArtifact(event.artifact, handoff.artifactBlob);
+              await retainPreviewArtifactPair(event.comparisonSourceArtifact, handoff.comparisonSourceBlob, event.artifact, handoff.artifactBlob);
               retainedArtifactId = event.artifact.id;
+              retainedSourceArtifactId = event.comparisonSourceArtifact.id;
             } catch {
-              await removePreviewArtifact(event.artifact.id).catch(() => undefined);
+              await removePreviewArtifactPair([event.artifact.id, event.comparisonSourceArtifact.id]).catch(() => undefined);
               acceptedEvent = artifactHandoffFailure(event);
             }
           }
@@ -53,7 +55,7 @@ export function startPreviewWorker(job: PreviewJob, file: File, onEvent: (event:
         } catch {
           accepted = false;
         }
-        if (retainedArtifactId && accepted === false) await removePreviewArtifact(retainedArtifactId).catch(() => undefined);
+        if (retainedArtifactId && retainedSourceArtifactId && accepted === false) await removePreviewArtifactPair([retainedArtifactId, retainedSourceArtifactId]).catch(() => undefined);
       }).catch(() => undefined);
       if (terminalReceived) void relay.finally(() => { disposed = true; worker.terminate(); resolve(); });
     };

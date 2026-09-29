@@ -31,6 +31,7 @@ export function createPreviewCoordinator(dependencies: Dependencies = {}) {
         updatedAt: now(),
         phase: wasCancelling ? "Cancelled after the app stopped" : "Interrupted",
         artifact: undefined,
+        comparisonSourceArtifact: undefined,
         failure: wasCancelling ? undefined : {
           code: "PROCESSING_FAILED",
           message: "The local app stopped before this preview finished. Retry to start a new attempt.",
@@ -83,20 +84,23 @@ export function createPreviewCoordinator(dependencies: Dependencies = {}) {
     }
     if (event.type === "succeeded") {
       if (current.state === "cancelling") throw new PreviewJobError("INVALID_TRANSITION", "A cancelling preview cannot succeed.");
-      return change(id, (job) => ({ ...job, state: "succeeded", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, progress: 1, artifact: event.artifact, failure: undefined }));
+      if (!event.comparisonSourceArtifact) throw new PreviewJobError("INVALID_TRANSITION", "A new successful preview requires its retained Before audio artifact.");
+      const boundedDuration = current.range.endSeconds - current.range.startSeconds;
+      if (Math.abs(event.artifact.durationSeconds - boundedDuration) > 0.05 || Math.abs(event.comparisonSourceArtifact.durationSeconds - boundedDuration) > 0.05) throw new PreviewJobError("INVALID_TRANSITION", "Before and After artifacts must match the bounded preview range.");
+      return change(id, (job) => ({ ...job, state: "succeeded", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, progress: 1, artifact: event.artifact, comparisonSourceArtifact: event.comparisonSourceArtifact, failure: undefined }));
     }
     if (event.type === "failed") {
-      return change(id, (job) => ({ ...job, state: "failed", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, failure: event.failure, artifact: undefined }));
+      return change(id, (job) => ({ ...job, state: "failed", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, failure: event.failure, artifact: undefined, comparisonSourceArtifact: undefined }));
     }
     if (current.state !== "cancelling") throw new PreviewJobError("INVALID_TRANSITION", "Cancellation can settle only after the coordinator receives a cancel request.");
-    return change(id, (job) => ({ ...job, state: "cancelled", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, artifact: undefined }));
+    return change(id, (job) => ({ ...job, state: "cancelled", sequence: event.sequence, updatedAt: stamp, elapsedMs: event.elapsedMs, artifact: undefined, comparisonSourceArtifact: undefined }));
   }
   function cancel(id: string) {
     return change(id, (job) => {
       if (terminalStates.has(job.state)) return job;
       if (job.state === "cancelling") return job;
       if (job.state !== "queued" && job.state !== "running") throw new PreviewJobError("INVALID_TRANSITION", "Only an active preview can be cancelled.");
-      return { ...job, state: "cancelling", updatedAt: now(), artifact: undefined };
+      return { ...job, state: "cancelling", updatedAt: now(), artifact: undefined, comparisonSourceArtifact: undefined };
     });
   }
   async function retry(id: string) {

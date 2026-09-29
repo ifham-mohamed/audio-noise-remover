@@ -17,22 +17,33 @@ export const previewFailureSchema = z.object({ code: z.enum(["UNSUPPORTED_MEDIA"
 export const previewJobSchema = z.object({
   id: z.string().uuid(), kind: z.literal("preview"), state: previewStateSchema, sequence: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
   media: mediaMetadataSchema, profile: processingProfileSchema, range: previewRangeSchema, modelVersions: z.record(z.string(), z.string()).default({}), retryOf: z.string().uuid().optional(),
-  phase: z.string().optional(), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative().default(0), artifact: previewArtifactSchema.optional(), failure: previewFailureSchema.optional(),
+  phase: z.string().optional(), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative().default(0), artifact: previewArtifactSchema.optional(), comparisonSourceArtifact: previewArtifactSchema.optional(), failure: previewFailureSchema.optional(),
 }).superRefine((job, context) => {
   if (job.profile.mediaRef !== job.media.sourceRef) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "mediaRef"], message: "Preview profile must reference the selected source." });
   if (job.profile.output.mediaKind !== job.media.mediaKind) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "mediaKind"], message: "Preview output type must match the selected source." });
   if (job.range.endSeconds > job.media.durationSeconds) context.addIssue({ code: z.ZodIssueCode.custom, path: ["range", "endSeconds"], message: "Preview range cannot extend beyond the media duration." });
   if (job.state === "succeeded" && !job.artifact) context.addIssue({ code: z.ZodIssueCode.custom, path: ["artifact"], message: "A successful preview requires a validated artifact." });
+  if (job.artifact && job.comparisonSourceArtifact) {
+    if (job.artifact.id === job.comparisonSourceArtifact.id) context.addIssue({ code: z.ZodIssueCode.custom, path: ["comparisonSourceArtifact", "id"], message: "Before and After preview artifacts must have distinct identities." });
+    const boundedDuration = job.range.endSeconds - job.range.startSeconds;
+    if (Math.abs(job.artifact.durationSeconds - job.comparisonSourceArtifact.durationSeconds) > 0.05 || Math.abs(job.artifact.durationSeconds - boundedDuration) > 0.05 || Math.abs(job.comparisonSourceArtifact.durationSeconds - boundedDuration) > 0.05) context.addIssue({ code: z.ZodIssueCode.custom, path: ["comparisonSourceArtifact"], message: "Before and After artifacts must match the bounded preview duration." });
+  }
   if ((job.state === "failed" || job.state === "cancelled") && job.artifact) context.addIssue({ code: z.ZodIssueCode.custom, path: ["artifact"], message: "A failed or cancelled preview cannot expose an artifact." });
+  if (job.comparisonSourceArtifact && (job.state !== "succeeded" || !job.artifact)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["comparisonSourceArtifact"], message: "A comparison source artifact requires a successful preview artifact." });
   if (job.state === "failed" && !job.failure) context.addIssue({ code: z.ZodIssueCode.custom, path: ["failure"], message: "A failed preview requires a safe failure." });
 });
 export const createPreviewJobRequestSchema = z.object({ media: mediaMetadataSchema, profile: processingProfileSchema, currentTimeSeconds: z.number().finite().nonnegative() });
 export const previewEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("progress"), jobId: z.string().uuid(), sequence: z.number().int().positive(), phase: z.string().min(1).max(80), progress: z.number().min(0).max(1).optional(), elapsedMs: z.number().int().nonnegative() }),
-  z.object({ type: z.literal("succeeded"), jobId: z.string().uuid(), sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), artifact: previewArtifactSchema }),
+  z.object({ type: z.literal("succeeded"), jobId: z.string().uuid(), sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), artifact: previewArtifactSchema, comparisonSourceArtifact: previewArtifactSchema.optional() }),
   z.object({ type: z.literal("failed"), jobId: z.string().uuid(), sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative(), failure: previewFailureSchema }),
   z.object({ type: z.literal("cancelled"), jobId: z.string().uuid(), sequence: z.number().int().positive(), elapsedMs: z.number().int().nonnegative() }),
-]);
+]).superRefine((event, context) => {
+  if (event.type === "succeeded" && event.comparisonSourceArtifact) {
+    if (event.artifact.id === event.comparisonSourceArtifact.id) context.addIssue({ code: z.ZodIssueCode.custom, path: ["comparisonSourceArtifact", "id"], message: "Before and After preview artifacts must have distinct identities." });
+    if (Math.abs(event.artifact.durationSeconds - event.comparisonSourceArtifact.durationSeconds) > 0.05) context.addIssue({ code: z.ZodIssueCode.custom, path: ["comparisonSourceArtifact"], message: "Before and After preview artifacts must have matching durations." });
+  }
+});
 export const previewCommandSchema = z.discriminatedUnion("command", [z.object({ command: z.literal("event"), event: previewEventSchema }), z.object({ command: z.literal("cancel") }), z.object({ command: z.literal("retry") })]);
 export const previewJobEnvelopeSchema = z.object({ data: previewJobSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string() });
 export type PreviewRange = z.infer<typeof previewRangeSchema>;

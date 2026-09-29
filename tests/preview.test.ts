@@ -124,6 +124,30 @@ describe("bounded preview job contract", () => {
     expect(() => coordinator.consume(job.id, { type: "succeeded", jobId: job.id, sequence: 3, elapsedMs: 130, artifact: { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: 12, durationSeconds: 10 } })).toThrow(/already finished/);
   });
 
+  it("persists comparison source metadata on success while allowing legacy jobs without it", async () => {
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    const paired = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
+    const after = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: 12, durationSeconds: 30 };
+    const before = { id: "00000000-0000-4000-8000-000000000003", mimeType: "audio/wav", sizeBytes: 12, durationSeconds: 30 };
+    expect(coordinator.consume(paired.id, { type: "succeeded", jobId: paired.id, sequence: 1, elapsedMs: 50, artifact: after, comparisonSourceArtifact: before })).toMatchObject({ state: "succeeded", artifact: after, comparisonSourceArtifact: before });
+
+    const legacy = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
+    expect(() => coordinator.consume(legacy.id, { type: "succeeded", jobId: legacy.id, sequence: 1, elapsedMs: 50, artifact: after })).toThrow(/requires its retained Before audio artifact/);
+    const priorPersistedSuccess = previewJobSchema.parse({ ...legacy, state: "succeeded", sequence: 1, artifact: after });
+    expect(priorPersistedSuccess).toMatchObject({ state: "succeeded", artifact: after });
+    expect(priorPersistedSuccess).not.toHaveProperty("comparisonSourceArtifact");
+  });
+
+  it("requires the Before artifact for new successes and rejects mismatched or terminal pairs", async () => {
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    const job = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
+    const after = { id: "00000000-0000-4000-8000-000000000002", mimeType: "audio/wav", sizeBytes: 12, durationSeconds: 30.04 };
+    const before = { id: "00000000-0000-4000-8000-000000000003", mimeType: "audio/wav", sizeBytes: 12, durationSeconds: 30.08 };
+    expect(() => coordinator.consume(job.id, { type: "succeeded", jobId: job.id, sequence: 1, elapsedMs: 5, artifact: after, comparisonSourceArtifact: before })).toThrow(/match the bounded preview range/);
+    const failedPair = { ...job, state: "failed" as const, artifact: undefined, comparisonSourceArtifact: before, failure: { code: "PROCESSING_FAILED" as const, message: "failed" } };
+    expect(previewJobSchema.safeParse(failedPair).success).toBe(false);
+  });
+
   it("settles cancellation after in-flight progress is rejected", async () => {
     const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
     const job = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });

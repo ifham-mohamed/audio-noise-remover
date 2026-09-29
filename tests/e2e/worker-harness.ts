@@ -66,10 +66,14 @@ runButton.addEventListener("click", () => {
     result.dataset.code = event.type === "failed" ? event.failure.code : "";
     result.textContent = JSON.stringify(event);
     if (event.type === "succeeded") {
+      if (!event.comparisonSourceArtifact) throw new Error("Before audio metadata was not included in the successful preview.");
+      const before = await openPreviewArtifact(event.comparisonSourceArtifact.id);
       const opened = await openPreviewArtifact(event.artifact.id);
-      if (!opened) throw new Error("Enhanced artifact could not be reopened.");
+      if (!before || !opened) throw new Error("The paired preview artifacts could not be reopened.");
       try {
         result.dataset.reopened = "true";
+        result.dataset.sourceReopened = "true";
+        result.dataset.pairDurationMatch = String(Math.abs(before.durationSeconds - opened.durationSeconds) <= 0.05);
         if (file.name === "tone.wav") {
           const context = new AudioContext({ sampleRate: 48_000 });
           try {
@@ -85,7 +89,7 @@ runButton.addEventListener("click", () => {
             result.dataset.rmsDifference = String(Math.sqrt(error / count));
           } finally { await context.close(); }
         }
-      } finally { releasePreviewArtifactUrl(opened.url); }
+      } finally { releasePreviewArtifactUrl(before.url); releasePreviewArtifactUrl(opened.url); }
     }
     if (event.type !== "progress") { runButton.disabled = false; cancelButton.disabled = true; }
     return true;

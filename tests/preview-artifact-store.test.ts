@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { openPreviewArtifact, pruneExpiredPreviewArtifacts, releasePreviewArtifactUrl, removePreviewArtifact, retainPreviewArtifact, validatePreviewArtifactBlob } from "@/features/preview/preview-artifact-store";
+import { openPreviewArtifact, pruneExpiredPreviewArtifacts, releasePreviewArtifactUrl, removePreviewArtifact, removePreviewArtifactPair, retainPreviewArtifact, retainPreviewArtifactPair, validatePreviewArtifactBlob } from "@/features/preview/preview-artifact-store";
 
 beforeEach(() => vi.stubGlobal("indexedDB", new IDBFactory()));
 afterEach(() => vi.unstubAllGlobals());
@@ -111,6 +111,45 @@ describe("preview artifact validation", () => {
       if (revokeDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor);
       else Reflect.deleteProperty(URL, "revokeObjectURL");
     }
+  });
+
+  it("retains and reopens Before and After together, then releases both URLs", async () => {
+    const beforeBlob = makePcmWav({ channels: 1, bitsPerSample: 32 });
+    const afterBlob = makePcmWav({ channels: 1, bitsPerSample: 32 });
+    const before = { ...metadata(beforeBlob), id: "00000000-0000-4000-8000-000000000003" };
+    const after = { ...metadata(afterBlob), id: "00000000-0000-4000-8000-000000000004" };
+    const createObjectUrl = vi.fn((blob: Blob) => `blob:paired-${blob.size}-${Math.random()}`);
+    const revokeObjectUrl = vi.fn();
+    const createDescriptor = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    const revokeDescriptor = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+    try {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectUrl });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectUrl });
+      await retainPreviewArtifactPair(before, beforeBlob, after, afterBlob);
+      const [openedBefore, openedAfter] = await Promise.all([openPreviewArtifact(before.id), openPreviewArtifact(after.id)]);
+      expect(openedBefore).toMatchObject({ ...before, url: expect.stringMatching(/^blob:paired-/) });
+      expect(openedAfter).toMatchObject({ ...after, url: expect.stringMatching(/^blob:paired-/) });
+      releasePreviewArtifactUrl(openedBefore!.url);
+      releasePreviewArtifactUrl(openedAfter!.url);
+      expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
+      await removePreviewArtifactPair([before.id, after.id]);
+      await expect(openPreviewArtifact(before.id)).resolves.toBeUndefined();
+      await expect(openPreviewArtifact(after.id)).resolves.toBeUndefined();
+    } finally {
+      if (createDescriptor) Object.defineProperty(URL, "createObjectURL", createDescriptor);
+      else Reflect.deleteProperty(URL, "createObjectURL");
+      if (revokeDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor);
+      else Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
+
+  it("validates both members before retaining either side of a comparison", async () => {
+    const beforeBlob = makePcmWav({ channels: 1, bitsPerSample: 32 });
+    const invalidAfter = new Blob([new Uint8Array(64)], { type: "audio/wav" });
+    const before = { ...metadata(beforeBlob), id: "00000000-0000-4000-8000-000000000003" };
+    const after = { ...metadata(invalidAfter), id: "00000000-0000-4000-8000-000000000004" };
+    await expect(retainPreviewArtifactPair(before, beforeBlob, after, invalidAfter)).rejects.toThrow(/RIFF\/WAVE/);
+    await expect(openPreviewArtifact(before.id)).resolves.toBeUndefined();
   });
 
   it("prunes expired preview artifacts according to the seven-day local retention window", async () => {

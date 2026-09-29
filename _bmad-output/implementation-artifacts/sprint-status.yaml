@@ -54,7 +54,7 @@ development_status:
   epic-3: in-progress
   3-1-create-a-bounded-preview: review
   3-2-show-preview-progress-cancellation-and-failure: review
-  3-3-compare-before-and-after-preview-audio: backlog
+  3-3-compare-before-and-after-preview-audio: review
   epic-3-retrospective: optional
 
   epic-4: backlog

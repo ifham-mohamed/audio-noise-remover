@@ -63,6 +63,8 @@ test.describe("real browser-worker experimental enhancement", () => {
     test(`${format.toUpperCase()} is decoded by the bundled local worker`, async ({ page }) => {
       const { result, requestedOrigins } = await runWorker(page, `tone.${format}`);
       await expect(result).toHaveAttribute("data-reopened", "true");
+      await expect(result).toHaveAttribute("data-source-reopened", "true");
+      await expect(result).toHaveAttribute("data-pair-duration-match", "true");
       await expect(result).toHaveAttribute("data-model-progress", "true");
       expect([...requestedOrigins]).toEqual(["http://127.0.0.1:4173"]);
     });
@@ -72,6 +74,8 @@ test.describe("real browser-worker experimental enhancement", () => {
     test(`${format.toUpperCase()} audio is extracted without decoding or publishing video`, async ({ page }) => {
       const { result, requestedOrigins } = await runWorker(page, `tone.${format}`);
       await expect(result).toHaveAttribute("data-reopened", "true");
+      await expect(result).toHaveAttribute("data-source-reopened", "true");
+      await expect(result).toHaveAttribute("data-pair-duration-match", "true");
       await expect(result).toHaveAttribute("data-model-progress", "true");
       expect([...requestedOrigins]).toEqual(["http://127.0.0.1:4173"]);
     });
@@ -83,6 +87,7 @@ test.describe("real browser-worker experimental enhancement", () => {
 
     const selectedTrack = await runWorker(page, "two-audio-mkv.mkv", 1);
     await expect(selectedTrack.result).toHaveAttribute("data-reopened", "true");
+    await expect(selectedTrack.result).toHaveAttribute("data-source-reopened", "true");
   });
 
   test("enhanced audio differs from decoded WAV input and survives artifact reopen", async ({ page }) => {

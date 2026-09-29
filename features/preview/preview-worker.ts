@@ -152,7 +152,17 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
     assertEnhancedAudio(samples, validated);
     if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
     const artifactBlob = new Blob([Uint8Array.from(encoded)], { type: "audio/wav" });
-    return { type: "succeeded", elapsedMs: elapsed(), artifact: { id: crypto.randomUUID(), mimeType: "audio/wav", sizeBytes: artifactBlob.size, durationSeconds: validated.length / 48_000 }, artifactBlob, artifactSource: "enhancement-adapter" };
+    const comparisonSourceBlob = new Blob([Uint8Array.from(decoded)], { type: "audio/wav" });
+    const durationSeconds = validated.length / 48_000;
+    return {
+      type: "succeeded",
+      elapsedMs: elapsed(),
+      artifact: { id: crypto.randomUUID(), mimeType: "audio/wav", sizeBytes: artifactBlob.size, durationSeconds },
+      comparisonSourceArtifact: { id: crypto.randomUUID(), mimeType: "audio/wav", sizeBytes: comparisonSourceBlob.size, durationSeconds: samples.length / 48_000 },
+      artifactBlob,
+      comparisonSourceBlob,
+      artifactSource: "enhancement-adapter",
+    };
   } catch (cause) {
     if (cancelled) {
       return { type: "cancelled", elapsedMs: elapsed() };

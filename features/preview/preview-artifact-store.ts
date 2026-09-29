@@ -124,6 +124,31 @@ export async function retainPreviewArtifact(artifactInput: unknown, blob: Blob) 
   await pruneExpiredPreviewArtifacts();
 }
 
+export async function retainPreviewArtifactPair(sourceInput: unknown, sourceBlob: Blob, enhancedInput: unknown, enhancedBlob: Blob) {
+  const source = await validatePreviewArtifactBlob(sourceInput, sourceBlob);
+  const enhanced = await validatePreviewArtifactBlob(enhancedInput, enhancedBlob);
+  if (source.id === enhanced.id || Math.abs(source.durationSeconds - enhanced.durationSeconds) > 0.05) {
+    throw new Error("The Before and After preview artifacts do not form a matching pair.");
+  }
+  const [sourceBytes, enhancedBytes] = await Promise.all([readBlob(sourceBlob), readBlob(enhancedBlob)]);
+  const createdAt = Date.now();
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(objectStoreName, "readwrite");
+    const store = transaction.objectStore(objectStoreName);
+    store.put({ ...source, createdAt, audioBytes: sourceBytes } satisfies StoredPreviewArtifact);
+    store.put({ ...enhanced, createdAt, audioBytes: enhancedBytes } satisfies StoredPreviewArtifact);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("The paired preview audio could not be retained locally."));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Paired preview storage was interrupted."));
+    });
+  } finally {
+    db.close();
+  }
+  await pruneExpiredPreviewArtifacts();
+}
+
 export async function openPreviewArtifact(id: string) {
   const db = await openDatabase();
   let record: StoredPreviewArtifact | undefined;
@@ -158,6 +183,22 @@ export async function removePreviewArtifact(id: string) {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error("The preview artifact could not be removed locally."));
       transaction.onabort = () => reject(transaction.error ?? new Error("Local preview artifact cleanup was interrupted."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function removePreviewArtifactPair(ids: string[]) {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(objectStoreName, "readwrite");
+    const store = transaction.objectStore(objectStoreName);
+    for (const id of new Set(ids)) store.delete(id);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("The paired preview artifacts could not be removed."));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Paired preview cleanup was interrupted."));
     });
   } finally {
     db.close();
