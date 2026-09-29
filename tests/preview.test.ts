@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
 import { createPreviewJob, getPreviewRange, MAX_PREVIEW_DURATION_SECONDS, PreviewJobError, previewJobSchema } from "@/shared/contracts/preview";
 import { createPreviewCoordinator } from "@/server/domain/preview-coordinator";
+import type { PreviewJobStore } from "@/server/adapters/preview-job-file-store";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
 const media: MediaMetadata = {
@@ -13,6 +14,12 @@ const media: MediaMetadata = {
   durationSeconds: 90,
   audioStream: { id: "audio-0", present: true, summary: "Audio stream ready" },
 };
+
+function createTestPreviewCoordinator(dependencies: Omit<Parameters<typeof createPreviewCoordinator>[0], "store"> = {}) {
+  let stored: import("@/shared/contracts/preview").PreviewJob[] = [];
+  const store: PreviewJobStore = { load: () => [...stored], save: (jobs) => { stored = [...jobs]; } };
+  return createPreviewCoordinator({ ...dependencies, store });
+}
 
 describe("bounded preview job contract", () => {
   it("creates a queued preview with an immutable normalized profile snapshot", () => {
@@ -73,7 +80,7 @@ describe("bounded preview job contract", () => {
   });
 
   it("creates the validated job through the coordinator with capability versions", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
       { id: "ffmpeg", label: "FFmpeg", status: "ready", summary: "Available", version: "9.0" },
       { id: "models", label: "Speech models", status: "ready", summary: "Available", version: "model-1" },
       { id: "storage", label: "Local storage", status: "ready", summary: "Writable" },
@@ -85,7 +92,7 @@ describe("bounded preview job contract", () => {
   });
 
   it("keeps missing model capability visible to the worker while creating an attempt", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
       { id: "ffmpeg", label: "FFmpeg", status: "ready", summary: "Available" },
       { id: "models", label: "Speech models", status: "attention", summary: "Local model setup needs attention." },
       { id: "storage", label: "Local storage", status: "ready", summary: "Writable" },
@@ -96,7 +103,7 @@ describe("bounded preview job contract", () => {
   });
 
   it("creates a job attempt so runtime failures can be recorded as terminal jobs", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [
       { id: "ffmpeg", label: "FFmpeg", status: "unavailable", summary: "FFmpeg is unavailable." },
       { id: "models", label: "Speech models", status: "ready", summary: "Available", version: "model-1" },
       { id: "storage", label: "Local storage", status: "ready", summary: "Writable" },
@@ -106,7 +113,7 @@ describe("bounded preview job contract", () => {
   });
 
   it("sequences progress, cancellation and terminal cleanup; rejects late success", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }), now: () => "2026-09-29T00:00:01.000Z" });
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }), now: () => "2026-09-29T00:00:01.000Z" });
     const job = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
     const running = coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 1, phase: "Preparing", progress: 0.25, elapsedMs: 100 });
     expect(running).toMatchObject({ state: "running", progress: 0.25, sequence: 1 });
@@ -118,17 +125,25 @@ describe("bounded preview job contract", () => {
   });
 
   it("settles cancellation after in-flight progress is rejected", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
     const job = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
     coordinator.cancel(job.id);
     expect(() => coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 1, phase: "Late progress", progress: 0.2, elapsedMs: 1 })).toThrow(/cancelling/);
     expect(coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 2, elapsedMs: 2 })).toMatchObject({ state: "cancelled", sequence: 2 });
   });
 
+  it("rejects sequence gaps unless cancellation discarded an in-flight progress event", async () => {
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    const job = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
+    expect(() => coordinator.consume(job.id, { type: "progress", jobId: job.id, sequence: 2, phase: "Skipped", progress: 0.2, elapsedMs: 1 })).toThrow(/missing, stale, or out of order/);
+    coordinator.cancel(job.id);
+    expect(coordinator.consume(job.id, { type: "cancelled", jobId: job.id, sequence: 3, elapsedMs: 2 })).toMatchObject({ state: "cancelled", sequence: 3 });
+  });
+
   it("enforces the active-job limit when capability checks resolve concurrently", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => { await gate; return { generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }; } });
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => { await gate; return { generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }; } });
     const requests = Array.from({ length: 5 }, () => coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 }));
     release();
     const results = await Promise.allSettled(requests);
@@ -137,7 +152,7 @@ describe("bounded preview job contract", () => {
   });
 
   it("creates a linked retry only from failed or cancelled attempts", async () => {
-    const coordinator = createPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
     const first = await coordinator.create({ media, profile: defaultProcessingProfile(media.sourceRef, "audio-0"), currentTimeSeconds: 25 });
     coordinator.consume(first.id, { type: "failed", jobId: first.id, sequence: 1, elapsedMs: 5, failure: { code: "MODEL_UNAVAILABLE", message: "No model", action: "settings" } });
     const second = await coordinator.retry(first.id);
