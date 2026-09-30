@@ -16,7 +16,8 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Process" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
@@ -107,7 +108,8 @@ test("uses a browser download instead of an unsafe path picker", async ({ page }
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
   const downloadPromise = page.waitForEvent("download");
@@ -129,7 +131,8 @@ test("retries model-unavailable output as a new linked local attempt", async ({ 
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Your original remains unchanged, and no successful output is available.", { exact: true })).toBeVisible();
@@ -170,7 +173,8 @@ test("fails closed when the pinned model bytes do not match the verified model",
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const outputCount = await page.evaluate(() => new Promise<number>((resolve, reject) => {
@@ -189,7 +193,8 @@ test("does not create a retry attempt when the original source is missing locall
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
@@ -211,7 +216,8 @@ test("does not create a retry attempt when retained source bytes are unreadable"
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
@@ -257,7 +263,8 @@ test("cancels an active local worker and retains no final artifact", async ({ pa
   await page.goto("http://127.0.0.1:3100");
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
-  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
   await page.getByRole("button", { name: "Process" }).click();
   await modelRequested;
   const cancelButton = page.getByRole("button", { name: "Cancel processing" });

@@ -2,7 +2,7 @@
 title: 'Story 2.1 — Select and Inspect Local Media'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '89b5743aa5fd3ed3a67d639c4d770791581dabdd'
@@ -54,9 +54,9 @@ context:
 **Execution:**
 - [x] `shared/contracts/media.ts` -- define supported-format constants, typed metadata, inspection states, and stable errors -- keep browser/server/media boundaries aligned.
 - [x] `features/intake/` -- implement accessible Browse/drop handling, local inspection state, ready/error cards, and Replace/Remove -- make the intake workflow understandable and recoverable.
-- [ ] `features/intake/media-inspection.ts` and a local browser media-probe adapter -- inspect the client-held File locally and return verified media/usable-stream metadata; keep all media bytes out of API requests. `app/api/media/inspect/route.ts` may validate only the derived typed metadata, never claim to probe the file itself.
+- [x] `features/intake/media-inspection.ts` and a local browser media-probe adapter -- inspect the client-held File locally and return verified media/usable-stream metadata; keep all media bytes out of API requests. `app/api/media/inspect/route.ts` may validate only the derived typed metadata, never claim to probe the file itself.
 - [x] `app/page.tsx` -- compose the intake surface with local trust copy and existing shell layout -- make New enhancement the first usable product loop step.
-- [ ] `tests/intake*.test.tsx`, `tests/media*.test.ts`, and browser integration tests -- verify real supported/corrupt/no-audio inputs and prove ready is returned only after a real audio stream is found -- prevent unsafe processing states and format regressions.
+- [x] `tests/intake*.test.tsx`, `tests/media*.test.ts`, and browser integration tests -- verify real supported/corrupt/no-audio inputs and prove ready is returned only after a real audio stream is found -- prevent unsafe processing states and format regressions.
 
 **Acceptance Criteria:**
 - Given New enhancement opens, when no media is selected, then the drop zone, Browse action, supported list, and local-processing explanation are visible and keyboard accessible.
@@ -73,6 +73,11 @@ context:
 - Added a local typed `/api/media/inspect` envelope boundary for validating derived metadata without coupling UI to media tooling; it does not receive media bytes or perform file probing.
 - Verified 35 tests, TypeScript, ESLint, and production build successfully.
 - Review finding (2026-09-30): current `inspectLocalMedia` relies on an HTML media element's metadata event and synthesizes an `audio-0` stream; the API validates submitted metadata but does not inspect media bytes. Metadata success alone does not prove a usable audio stream, especially for video. Keep this story open until a local media probe verifies the stream and the result is covered end to end.
+- Replaced metadata-event trust with a dedicated browser worker that probes and decodes locally using the checked-in FFmpeg core. It verifies the actual container against the declared extension, duration, and decodability of audio before marking the file ready; malformed, no-audio, unsupported, and unavailable cases stay distinct. Inspection sends no media bytes to the API and cleans the worker's temporary files.
+- Added a 256 MiB inspection limit, a 60-second worker timeout, and per-selection request identity so oversized media fails safely, hung workers terminate, and stale probe results cannot restore replaced/removed media. Reusing the same filename/size/mtime for a new selection also resets editor state.
+- Verified real MP3, WAV, M4A, FLAC, MP4, MOV, and MKV fixtures in Edge, plus corrupt data, a misleading extension, silent video, and a multi-audio MKV whose first decodable stream is selected. The real-file test asserts no inspection POST occurred.
+- Checks at implementation: `npm test -- --run tests/media.test.ts tests/intake.test.tsx` (17 passed), `npx playwright test tests/e2e/media-inspection.pw.ts` (2 passed), `npm run typecheck`, `npm run lint`, `npm run build`, and `npm run verify:ffmpeg` passed.
+- Review-hardening checks (2026-09-30): focused intake/media/preview-worker suite covers input-size rejection, inspection timeout/termination, same-reference replacement, and track ordinal handoff.
 
 ## Spec Change Log
 
@@ -80,6 +85,7 @@ context:
 
 - `blocking / in-progress` — Independent acceptance review found that the current browser metadata probe reports a fabricated audio stream and the API only validates the submitted metadata. This does not satisfy the requirement to reject media without usable audio. Implement a local probe behind the media boundary and test real audio, no-audio video, corrupt input, and multi-stream input before closing Story 2.1.
 - `false` — A reviewer suggested adding no-audio rejection to the acceptance criteria; the frozen criteria already require a stable actionable error for media with “no usable audio stream.” The open work is implementation and real-fixture proof, so the approved acceptance text remains unchanged.
+- `resolved` — Actual local inspection is implemented and tested against all seven supported formats, malformed/misleading/no-audio inputs, plus inspection-size, timeout, and stale-selection cases. Story implementation is ready for formal review; this is no longer an open implementation blocker.
 
 ## Design Notes
 
@@ -92,6 +98,10 @@ The empty state should feel like a calm local workbench, not an upload dashboard
 - `npm run typecheck` -- expected: no TypeScript errors.
 - `npm run lint` -- expected: no lint errors.
 - `npm run build` -- expected: production build succeeds.
+
+Implementation run (2026-09-30): all commands above passed; Edge fixture integration passed both tests.
+
+Final review verification (2026-09-30): independent acceptance review found no material blockers. Full unit suite passed (225 tests), full Edge browser suite passed (28 tests), TypeScript, ESLint, production build, and bundled FFmpeg core verification passed.
 
 **Manual checks:**
 - Use keyboard Browse and drag-and-drop with representative supported, unsupported, malformed, and no-audio fixtures; verify local-only copy, inspecting/ready/error states, 44px actions, and that originals/settings remain unchanged.

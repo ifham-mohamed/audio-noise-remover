@@ -7,7 +7,20 @@ import { Button } from "@/components/ui/button";
 import { defaultProcessingProfile, defaultProcessingStages, normalizeProcessingProfile, type CapabilityState, type EffectId, type ProcessingProfile, type ProcessingStage } from "@/shared/contracts/processing";
 import { getStageDeclaration, processingProfileRegistry } from "@/shared/contracts/processing-profiles";
 
-const readyCapability: CapabilityState = { status: "ready", cpuSafe: true };
+export const currentEffectCapabilities: Record<EffectId, CapabilityState> = {
+  "noise-removal": { status: "limited", cpuSafe: true, message: "Experimental local noise removal only; this model has not passed the production quality gate." },
+  "voice-clarity": { status: "unavailable", cpuSafe: false, message: "Voice clarity is not available until its local adapter and quality checks are complete." },
+  "loudness-normalization": { status: "unavailable", cpuSafe: false, message: "Loudness normalization is not available until its processing and measurement rules are verified." },
+  "echo-reverb-reduction": { status: "unavailable", cpuSafe: false, message: "Echo/reverb reduction is not available until its local adapter and quality checks are complete." },
+};
+
+function capabilityFor(capabilities: Partial<Record<EffectId, CapabilityState>>, effectId: EffectId) {
+  return capabilities[effectId] ?? currentEffectCapabilities[effectId];
+}
+
+export function applyEffectCapabilities(profile: ProcessingProfile, capabilities: Partial<Record<EffectId, CapabilityState>> = currentEffectCapabilities): ProcessingProfile {
+  return { ...profile, stages: profile.stages.map((stage) => capabilityFor(capabilities, stage.id as EffectId).status === "unavailable" ? { ...stage, enabled: false } : stage) };
+}
 
 function formatParameterValue(value: number, unit: string) {
   if (unit === "LUFS") return `${value} LUFS`;
@@ -17,8 +30,7 @@ function formatParameterValue(value: number, unit: string) {
 
 export function EffectInspector({ mediaRef, selectedAudioStreamId, capabilities = {}, onProfileChange }: { mediaRef: string; selectedAudioStreamId?: string; capabilities?: Partial<Record<EffectId, CapabilityState>>; onProfileChange?: (profile: ProcessingProfile) => void }) {
   const [profile, setProfile] = useState(() => {
-    const initial = defaultProcessingProfile(mediaRef, selectedAudioStreamId);
-    return { ...initial, stages: initial.stages.map((stage) => capabilities[stage.id as EffectId]?.status === "unavailable" ? { ...stage, enabled: false } : stage) };
+    return applyEffectCapabilities(defaultProcessingProfile(mediaRef, selectedAudioStreamId), capabilities);
   });
   const update = (next: ProcessingProfile) => {
     const normalized = normalizeProcessingProfile(next);
@@ -28,7 +40,7 @@ export function EffectInspector({ mediaRef, selectedAudioStreamId, capabilities 
   const enabledStages = useMemo(() => profile.stages.filter((stage) => stage.enabled), [profile.stages]);
 
   function toggle(stage: ProcessingStage) {
-    const capability = capabilities[stage.id as EffectId] ?? readyCapability;
+    const capability = capabilityFor(capabilities, stage.id as EffectId);
     if (!stage.enabled && capability.status === "unavailable") return;
     update({ ...profile, stages: profile.stages.map((candidate) => candidate.id === stage.id ? { ...candidate, enabled: !candidate.enabled } : candidate) });
   }
@@ -42,13 +54,16 @@ export function EffectInspector({ mediaRef, selectedAudioStreamId, capabilities 
 
   function reset(stage: ProcessingStage) {
     const defaults = defaultProcessingStages.find((fallback) => fallback.id === stage.id);
-    if (defaults) update({ ...profile, stages: profile.stages.map((candidate) => candidate.id === stage.id ? defaults : candidate) });
+    if (defaults) {
+      const capability = capabilityFor(capabilities, stage.id as EffectId);
+      update({ ...profile, stages: profile.stages.map((candidate) => candidate.id === stage.id ? { ...defaults, enabled: capability.status === "unavailable" ? false : defaults.enabled } : candidate) });
+    }
   }
 
   return <section className="mt-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-raised)] p-5" aria-labelledby="effects-title">
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">Speech profile</p><h2 id="effects-title" className="mt-1 text-xl font-semibold">Tune the enhancement stages</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted-foreground)]">Each stage stays independent, so you can decide exactly what will run on this local media.</p></div><Badge><SlidersHorizontal className="mr-1 size-3.5" aria-hidden="true" />Draft profile</Badge></div>
     <div className="mt-5 grid gap-3 sm:grid-cols-2" aria-label="Registered processing profiles">{processingProfileRegistry.filter((declaration) => declaration.id !== "speech").map((declaration) => <article key={declaration.id} className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-elevated)] p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">{declaration.label}</h3><Badge>Unavailable</Badge></div><p className="mt-2 text-sm leading-5 text-[var(--muted-foreground)]">{declaration.execution.reason}</p><ul className="mt-3 space-y-2 text-sm">{declaration.stages.map((stage) => <li key={stage.id}><span className="font-medium">{stage.label}</span><span className="block text-[var(--muted-foreground)]">{stage.description}</span></li>)}</ul></article>)}</div>
-    <div className="mt-6 space-y-3">{profile.stages.map((stage, index) => <EffectCard key={stage.id} stage={stage} index={index} capability={capabilities[stage.id as EffectId] ?? readyCapability} onToggle={() => toggle(stage)} onChange={(parameterId, value) => changeValue(stage, parameterId, value)} onReset={() => reset(stage)} />)}</div>
+    <div className="mt-6 space-y-3">{profile.stages.map((stage, index) => <EffectCard key={stage.id} stage={stage} index={index} capability={capabilityFor(capabilities, stage.id as EffectId)} onToggle={() => toggle(stage)} onChange={(parameterId, value) => changeValue(stage, parameterId, value)} onReset={() => reset(stage)} />)}</div>
     <div className="mt-6 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--primary)_28%,transparent)] bg-[var(--surface-elevated)] p-4"><p className="text-sm font-medium">What will run</p><p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">{enabledStages.length ? enabledStages.map((stage, index) => {
       const declaration = getStageDeclaration(profile.profileId, stage.id);
       const values = declaration?.parameters.map((parameter) => formatParameterValue(stage.parameters[parameter.id] ?? parameter.defaultValue, parameter.unit)).join(", ") ?? "";

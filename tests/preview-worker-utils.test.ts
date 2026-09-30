@@ -11,10 +11,10 @@ const video: MediaMetadata = {
   mediaKind: "video",
   sizeBytes: 1024,
   durationSeconds: 90,
-  audioStream: { id: "main", present: true, summary: "Main mix" },
+  audioStream: { id: "main", ffmpegAudioOrdinal: 0, present: true, summary: "Main mix" },
   audioStreams: [
-    { id: "main", present: true, summary: "Main mix" },
-    { id: "commentary", present: true, summary: "Commentary" },
+    { id: "main", ffmpegAudioOrdinal: 0, present: true, summary: "Main mix" },
+    { id: "commentary", ffmpegAudioOrdinal: 2, present: true, summary: "Commentary" },
   ],
   selectedAudioStreamId: "commentary",
 };
@@ -25,9 +25,9 @@ describe("preview worker utilities", () => {
     const job = createPreviewJob(video, profile, 40);
     const streamIndex = getPreviewAudioStreamIndex(job);
 
-    expect(streamIndex).toBe(1);
+    expect(streamIndex).toBe(2);
     const args = buildPreviewDecodeArgs(job.range, streamIndex, "/input.mov", "/preview.wav");
-    expect(args).toContain("0:a:1");
+    expect(args).toContain("0:a:2");
     expect(args.slice(args.indexOf("-ac"), args.indexOf("-ac") + 2)).toEqual(["-ac", "1"]);
   });
 

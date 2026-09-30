@@ -44,8 +44,8 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-select-and-inspect-local-media: in-progress
-  2-2-review-media-card-and-video-audio-stream: in-progress
+  2-1-select-and-inspect-local-media: done
+  2-2-review-media-card-and-video-audio-stream: done
   2-3-configure-independent-speech-effects: done
   2-4-use-waveform-timeline-and-transport-controls: done
   2-5-define-and-validate-output-profile: done

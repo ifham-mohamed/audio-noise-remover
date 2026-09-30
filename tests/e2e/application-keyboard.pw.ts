@@ -3,7 +3,7 @@ import path from "node:path";
 
 const wavFixture = path.resolve(__dirname, "../fixtures/preview/tone.wav");
 
-test("keyboard intake and preview lifecycle expose accessible status without sending media bytes", async ({ page }) => {
+test("keyboard intake starts and cancels preview accessibly without sending media bytes", async ({ page }) => {
   const previewRequestBodies: unknown[] = [];
   page.on("request", (request) => {
     if (request.url().endsWith("/api/preview-jobs") && request.method() === "POST") previewRequestBodies.push(request.postDataJSON());
@@ -32,10 +32,10 @@ test("keyboard intake and preview lifecycle expose accessible status without sen
   await previewButton.focus();
   await expect(previewButton).toBeFocused();
   await previewButton.press("Enter");
-
-  const liveStatus = page.getByRole("status").filter({ hasText: "Preview failed" });
-  await expect(liveStatus).toContainText("voice clarity does not have a local preview adapter", { timeout: 60_000 });
-  await expect(page.getByRole("link", { name: "Review enhancement stages" })).toBeVisible();
+  const cancelButton = page.getByRole("button", { name: "Cancel preview" });
+  await expect(cancelButton).toBeVisible({ timeout: 60_000 });
+  await cancelButton.click();
+  await expect(page.getByRole("status").filter({ hasText: "Preview cancelled" })).toBeVisible({ timeout: 60_000 });
 
   expect(previewRequestBodies).toHaveLength(1);
   const requestBody = previewRequestBodies[0] as Record<string, unknown>;
@@ -43,6 +43,7 @@ test("keyboard intake and preview lifecycle expose accessible status without sen
   expect(requestBody).not.toHaveProperty("file");
   expect(requestBody).not.toHaveProperty("audioBytes");
   expect(requestBody).not.toHaveProperty("decodedAudio");
+  expect((requestBody.profile as { stages: Array<{ id: string; enabled: boolean }> }).stages.find((stage) => stage.id === "voice-clarity")?.enabled).toBe(false);
 });
 
 test("the app announces a real enhanced preview as experimental", async ({ page }) => {
@@ -52,9 +53,8 @@ test("the app announces a real enhanced preview as experimental", async ({ page 
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
 
   const voiceClarity = page.getByRole("switch", { name: "Voice clarity enabled" });
-  await expect(voiceClarity).toHaveAttribute("aria-checked", "true");
-  await voiceClarity.click();
   await expect(voiceClarity).toHaveAttribute("aria-checked", "false");
+  await expect(voiceClarity).toBeDisabled();
   await page.getByRole("button", { name: "Preview", exact: true }).click();
 
   await expect(page.getByRole("status").filter({ hasText: "Preview ready" })).toContainText("experimental model; not production-qualified", { timeout: 60_000 });

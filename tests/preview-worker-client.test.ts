@@ -55,6 +55,30 @@ describe("preview worker client", () => {
     expect(worker.terminated).toBe(true);
   });
 
+  it("hands the selected discovered video track's FFmpeg ordinal to the preview worker", async () => {
+    WorkerDouble.instances = [];
+    vi.stubGlobal("Worker", WorkerDouble);
+    const multiTrackMedia: MediaMetadata = {
+      sourceName: "meeting.mkv",
+      sourceRef: "local:meeting.mkv:1024:1",
+      format: "mkv",
+      mediaKind: "video",
+      sizeBytes: 1024,
+      durationSeconds: 90,
+      audioStream: { id: "audio-0", ffmpegAudioOrdinal: 0, present: true, summary: "Main mix" },
+      audioStreams: [
+        { id: "audio-0", ffmpegAudioOrdinal: 0, present: true, summary: "Main mix" },
+        { id: "audio-2", ffmpegAudioOrdinal: 2, present: true, summary: "Commentary" },
+      ],
+      selectedAudioStreamId: "audio-2",
+    };
+    const profile = defaultProcessingProfile(multiTrackMedia.sourceRef, "audio-2", "video", "mkv");
+    const job = createPreviewJob(multiTrackMedia, profile, 45, { id: "00000000-0000-4000-8000-000000000004" });
+    startPreviewWorker(job, new File(["video"], "meeting.mkv", { type: "video/x-matroska" }), vi.fn(async () => undefined));
+
+    expect(WorkerDouble.instances[0].posted[0]).toMatchObject({ type: "start", jobId: job.id, audioStreamIndex: 2 });
+  });
+
   it("ignores malformed, wrong-job, duplicate, and out-of-order events", async () => {
     const { job, onEvent, worker } = setup();
     worker.send({ type: "progress", jobId: "00000000-0000-4000-8000-000000000099", sequence: 1, phase: "Wrong job", progress: 0.2, elapsedMs: 1 });

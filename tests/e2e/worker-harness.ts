@@ -17,6 +17,7 @@ function metadataFor(file: File, selectedIndex: number): MediaMetadata {
   const mediaKind = videoFormats.has(format) ? "video" : "audio";
   const streams = [0, 1].map((index) => ({
     id: `audio-${index}`,
+    ffmpegAudioOrdinal: index,
     label: `Audio stream ${index + 1}`,
     present: index === 0 || file.name === "two-audio-mkv.mkv",
     summary: `Audio stream ${index + 1}`,

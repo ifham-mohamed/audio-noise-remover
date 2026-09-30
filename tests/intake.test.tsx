@@ -72,6 +72,10 @@ describe("intake panel", () => {
     expect(screen.getByRole("heading", { name: "Preview", level: 2 })).toBeInTheDocument();
     expect(screen.getByText(/Bounded sample · 0:30/)).toBeInTheDocument();
     expect(screen.getByText(/Range 25\.00–55\.00 seconds/)).toBeInTheDocument();
+    const request = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/preview-jobs");
+    const submittedProfile = JSON.parse(String(request?.[1]?.body)).profile as ReturnType<typeof defaultProcessingProfile>;
+    expect(submittedProfile.stages.find((stage) => stage.id === "noise-removal")?.enabled).toBe(true);
+    expect(submittedProfile.stages.find((stage) => stage.id === "voice-clarity")?.enabled).toBe(false);
     const noise = screen.getByRole("switch", { name: "Noise removal enabled" });
     await user.click(noise);
     expect(screen.getByText("Older profile")).toBeInTheDocument();
@@ -99,6 +103,20 @@ describe("intake panel", () => {
     expect(inspectionMock.inspectLocalMedia).toHaveBeenCalledTimes(2);
   });
 
+  it("resets editor controls when a new selection collides on the source reference", async () => {
+    inspectionMock.inspectLocalMedia.mockResolvedValue(readyResult);
+    const user = userEvent.setup();
+    render(<IntakePanel />);
+    await user.upload(fileInput(), new File(["first"], "interview.wav", { lastModified: 1 }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Ready to enhance" })).toBeInTheDocument());
+    await user.click(screen.getByRole("switch", { name: "Noise removal enabled" }));
+    expect(screen.getByRole("switch", { name: "Noise removal enabled" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Replace file" }));
+    await user.upload(fileInput(), new File(["other"], "interview.wav", { lastModified: 1 }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Ready to enhance" })).toBeInTheDocument());
+    expect(screen.getByRole("switch", { name: "Noise removal enabled" })).toBeChecked();
+  });
+
   it("offers diagnostics when the local inspector is unavailable", async () => {
     inspectionMock.inspectLocalMedia.mockResolvedValue({ status: "error", code: "INSPECTION_UNAVAILABLE", message: "Local inspection is unavailable." });
     const user = userEvent.setup();
@@ -120,6 +138,9 @@ describe("intake panel", () => {
     await user.selectOptions(select, "commentary");
     expect(select).toHaveValue("commentary");
     expect(screen.getByText("AAC mono")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const previewRequest = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/preview-jobs");
+    expect(JSON.parse(String(previewRequest?.[1]?.body)).profile.selectedAudioStreamId).toBe("commentary");
   });
 
   it("documents the first-stream default when video choices are unavailable", async () => {

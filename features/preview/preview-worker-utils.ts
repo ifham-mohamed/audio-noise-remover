@@ -13,8 +13,9 @@ export function isPreviewResourceExhaustion(cause: unknown) {
 
 export function getPreviewAudioStreamIndex(job: PreviewJob) {
   const selectedId = job.profile.selectedAudioStreamId ?? job.media.selectedAudioStreamId ?? job.media.audioStream.id;
-  const index = job.media.audioStreams?.findIndex((stream) => stream.id === selectedId) ?? -1;
-  return index >= 0 ? index : 0;
+  const selected = job.media.audioStreams?.find((stream) => stream.id === selectedId)
+    ?? (job.media.audioStream.id === selectedId ? job.media.audioStream : undefined);
+  return selected?.ffmpegAudioOrdinal ?? 0;
 }
 
 export function buildPreviewDecodeArgs(range: PreviewRange, audioStreamIndex: number, inputPath: string, outputPath: string) {

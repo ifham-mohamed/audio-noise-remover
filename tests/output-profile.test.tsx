@@ -15,16 +15,17 @@ describe("output profile panel", () => {
     expect(screen.getByRole("button", { name: "Output profile ready" })).toBeEnabled();
   });
 
-  it("uses the video source-container default or explicit MP4 fallback", async () => {
-    const user = userEvent.setup();
+  it("shows declared video profiles as unavailable until their final encode paths are implemented", () => {
     const view = render(<OutputProfilePanel mediaRef="local:meeting.mov" sourceName="meeting.mov" sourceFormat="mov" mediaKind="video" />);
     expect(screen.getByRole("combobox", { name: "Output format" })).toHaveValue("source-video");
+    expect(screen.getByRole("option", { name: "Source container · AAC 192 kbps" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Output path unavailable" })).toBeDisabled();
+    expect(screen.getByText(/Final video export is not implemented yet/)).toBeInTheDocument();
     view.unmount();
     render(<OutputProfilePanel mediaRef="local:meeting.mov" sourceName="meeting.mov" sourceFormat="mov" mediaKind="video" supportsSourceContainer={false} />);
     expect(screen.getByRole("combobox", { name: "Output format" })).toHaveValue("mp4");
-    expect(screen.getByText(/H.264 video and AAC audio/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output format" }), "mp4");
-    expect(screen.getByText(/MP4 · H.264\/AAC fallback/, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "MP4 · H.264/AAC fallback" })).toBeDisabled();
+    expect(screen.getByText(/no video stream will be encoded or replaced/)).toBeInTheDocument();
   });
 
   it("blocks an existing target until overwrite is explicitly confirmed", async () => {
@@ -36,17 +37,17 @@ describe("output profile panel", () => {
     expect(screen.getByRole("button", { name: "Output profile ready" })).toBeEnabled();
   });
 
-  it("updates only the output portion of the typed draft", async () => {
+  it("keeps compressed audio and quality settings unavailable until encoding is verified", async () => {
     const user = userEvent.setup(); const onProfileChange = vi.fn();
     render(<OutputProfilePanel {...baseProps} onProfileChange={onProfileChange} />);
+    expect(screen.getByRole("option", { name: "FLAC · lossless · not available yet" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: "MP3 · 192 kbps · not available yet" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: "M4A · AAC 192 kbps · not available yet" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Output quality" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Output profile ready" })).toBeEnabled();
     await user.selectOptions(screen.getByRole("combobox", { name: "Output format" }), "audio-mp3");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Output quality" }), "standard");
-    expect(screen.getByText(/MP3 · 192 kbps/, { selector: "p" })).toBeInTheDocument();
-    const latest = onProfileChange.mock.lastCall?.[0];
-    expect(latest.output.format).toBe("audio-mp3");
-    expect(latest.output.quality).toBe("standard");
-    expect(latest.mediaRef).toBe("local:voice.wav");
-    expect(latest.stages).toHaveLength(4);
+    expect(screen.getByRole("combobox", { name: "Output format" })).toHaveValue("audio-wav");
+    expect(onProfileChange).not.toHaveBeenCalled();
   });
 
   it("rejects using the original source as the output target without writing anything", async () => {
