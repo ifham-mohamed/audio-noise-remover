@@ -2,7 +2,7 @@
 title: 'Story 3.2 — Show Preview Progress, Cancellation, and Failure'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '33e9ea7be6c0836ae0e147dfb80f42faadc7b657'
@@ -62,7 +62,7 @@ context:
 - [x] `features/editor/preview-action.tsx`, `preview-surface.tsx` -- show per-job phase/progress/elapsed, cancel, safe failure actions, and retry accessibly.
 - [x] Preview tests -- contract transitions, regressions, terminal race rejection, retry linkage, artifact cleanup, all seven supported worker input formats, and selected video audio-track mapping are covered by passing unit and real-browser tests. Automated keyboard activation and live-status assertions cover the app flow.
 - [x] Manual failure-path assistive-technology check -- the user reports completing the Edge/Narrator failure-path walkthrough and that tested controls and announcements worked. Browser/reader versions and per-control notes were not recorded.
-- [ ] Manual success/cancellation Narrator check -- automated browser tests verify live-region text, real experimental success, and inference-time cancellation, but no human-observed spoken announcement has been recorded for these new paths. Record OS, Edge, and Narrator versions and the actual words heard for each state below; mark unavailable scenarios “not tested.”
+- [x] Manual success/cancellation Narrator check -- on 2026-10-01 the user confirmed the explicitly named progress, ready, cancelling, cancelled, and retry checks all worked. Accepted as a user-reported operational pass for the experimental scope. Edge version supplied; current-device Windows metadata read separately. Exact spoken phrases were not transcribed and no independent speech observation is claimed; see the record below.
 
 **Acceptance Criteria:**
 - Given a job is running, when its valid events arrive, then only that job shows its phase, available progress, and elapsed time.
@@ -148,14 +148,16 @@ Keep cancellation distinct from cancellation completion and associate retry with
 
 **Manual checks:**
 - Automated component and browser tests verify keyboard activation, visible focus, status/live-region text, safe actions, forced-colors visibility, reduced motion, and no artifact for cancellation/failure. Automated text checks do not prove spoken screen-reader output.
-- The user reported that the earlier Edge/Narrator failure-path walkthrough worked; versions and per-control notes were not supplied. The newly enabled successful experimental preview and inference-time cancellation need a fresh human-observed Narrator walkthrough. Record what was actually spoken for progress, ready, cancelling, cancelled, and retry; mark any unavailable scenario not tested.
+- The earlier Edge/Narrator failure-path walkthrough was reported working. On 2026-10-01 the user answered a question explicitly naming progress, ready, cancelling, cancelled, and retry: `yes all worked fine , Version154.0.4258.37(Official build)(64-bit)`. This direct report is accepted as an operational pass for all five checks and closes the experimental Story 3.2 scope. Exact Narrator phrases were not transcribed; speech was not independently observed by the reviewer.
 
-Environment (OS / Edge version / Narrator version): _To be completed by user_
+Environment evidence: user-supplied Edge version `154.0.4258.37 (Official build) (64-bit)`. Separately, read-only `Get-CimInstance Win32_OperatingSystem` on the current device returned Caption `Microsoft Windows 11 Pro`, Version `10.0.26100`, BuildNumber `26100` on 2026-10-01. These are host metadata, not OS details supplied by the user or independent proof of the test environment. Narrator standalone version, fixture, exact run time, and per-control speech/focus details were not supplied.
 
 | State | Actual spoken announcement | Result (pass / issue / not tested) | Notes |
 |---|---|---|---|
-| Progress | | Not tested | |
-| Preview ready | | Not tested | |
-| Cancelling | | Not tested | |
-| Cancelled | | Not tested | |
-| Retry action and any announcement | | Not tested | |
+| Progress | Exact phrase not transcribed | Pass — user reported | Covered by the five-state confirmation above |
+| Preview ready | Exact phrase not transcribed | Pass — user reported | Covered by the five-state confirmation above |
+| Cancelling | Exact phrase not transcribed | Pass — user reported | Covered by the five-state confirmation above |
+| Cancelled | Exact phrase not transcribed | Pass — user reported | Covered by the five-state confirmation above |
+| Retry action and any announcement | Exact phrase not transcribed | Pass — user reported | Covered by the five-state confirmation above |
+
+Completion reconciliation (2026-10-01): this user report supersedes the earlier outstanding-manual-check statements in the implementation history. Story 3.2 and Epic 3 are done for the approved experimental scope. Model qualification and physical macOS/Linux verification remain separate; no qualification gate is changed. See [manual-verification.md](../../docs/manual-verification.md).

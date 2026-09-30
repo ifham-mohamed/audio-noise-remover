@@ -2,6 +2,18 @@
 
 This companion turns the kernel into the minimum implementation contract. It follows the adopted architecture spine; it does not replace it.
 
+## Accepted experimental runtime binding (2026-10-01)
+
+The [local-runtime ADR](../../planning-artifacts/architecture/ADR-2026-10-01-local-runtime.md) binds actual processing to dedicated browser workers. Server coordinators receive metadata and lifecycle events, never source bytes or PCM. FFmpeg WASM 5.1.4 is the media boundary; ONNX Runtime Web 1.30.0 uses CPU WASM inference. Native FFmpeg is optional diagnostics, not a prerequisite. Logical diagrams below do not imply media transport through HTTP.
+
+Browser output uses isolated temporary encode files, actual decoded-output validation, SHA-256 binding and local artifact retention before success, rather than native filesystem rename. Downloads are separate copies; direct save-file writes remain disabled because original-source identity cannot yet be proved. Full retry-source copies persist until explicit confirmed linked-data cleanup, while originals and external downloads remain outside cleanup.
+
+The approved local experimental scope permits unqualified DPDFNet2 denoising and explicitly experimental late-tail reverb suppression, alongside bounded presence EQ and measured mono loudness normalization. This does not waive any production quality gate below. Peak protection can prevent a loudness target from being met; record actual achieved loudness and the limitation. Later enabled stages can alter that measured level. The true-peak estimate is not a certified meter.
+
+Actual audio exports are WAV PCM24, FLAC, MP3 192 kbps and M4A AAC 192 kbps; video outputs are the source MP4/MOV/MKV container with copied video packets and only the enhanced selected audio stream encoded as AAC 192 kbps. Additional audio, subtitles, data and attachments are explicitly omitted. Validate encoded audio and copied video fingerprints; incompatible formats fail closed. Current experimental limits are 128 MiB, 300 seconds and at most two source channels, converted explicitly to canonical 48 kHz mono. These implementation limits are not a general production-format or platform qualification claim.
+
+Video publication additionally requires bounded source/output timestamp evidence: preserved video presentation/decode timestamps and supported decoded-audio origin/AAC priming behavior. Delayed selected tracks, shifted common timeline origins, discontinuities or absent timing evidence are unsupported and must retain no output. General offset correction and representative metadata/chapter preservation fixtures remain follow-ups.
+
 ## Product surface
 
 The local Next.js UI exposes four primary areas: intake, enhancement editor, active-job/preview feedback, and history/settings. Intake supports MP3, WAV, M4A, FLAC, MP4, MOV, and MKV. Video inputs use FFmpeg to extract the selected/default audio stream; output media is chosen through an explicit output profile rather than inferred by UI code.

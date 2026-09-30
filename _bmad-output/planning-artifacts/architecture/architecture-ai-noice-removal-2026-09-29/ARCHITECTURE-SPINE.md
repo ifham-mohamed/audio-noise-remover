@@ -7,7 +7,7 @@ paradigm: local layered pipeline with explicit ports and asynchronous jobs
 scope: Cross-platform local web application for speech-first audio denoising and enhancement, with video audio extraction and restoration.
 status: final
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-01
 binds: [media-input, media-output, processing-jobs, audio-pipeline, local-privacy, web-ui, setup-and-operations]
 sources: [user-elicitation, official-technology-documentation]
 companions: [BUILD-PLAN.md, SETUP-AND-RUN.md, IMPLEMENTATION-ROADMAP.md]
@@ -16,6 +16,16 @@ companions: [BUILD-PLAN.md, SETUP-AND-RUN.md, IMPLEMENTATION-ROADMAP.md]
 # Architecture Spine — AI Noise Removal
 
 ## Design Paradigm
+
+### Implemented local runtime binding (2026-10-01)
+
+[ADR: local runtime](../ADR-2026-10-01-local-runtime.md) binds the experimental application to browser workers. The server coordinator owns job state and receives typed metadata/events only; media, PCM, inference and encoded artifacts stay in the browser. FFmpeg WASM owns media conversion, ONNX Runtime Web owns CPU inference, and IndexedDB retains validated derived artifacts and retry-source copies. UI components do not import these runtimes. The diagrams below describe logical ownership, not transfer of media bytes through HTTP.
+
+Final artifacts are encoded to isolated worker temporary files, decoded/validated and checksummed before retention and coordinator success. Browser downloads create separate outputs; direct filesystem writes remain disabled until original-source identity can be proved. Linked-data cleanup removes retained copies, never original files or independently saved downloads. This replaces the native temporary-file/atomic-rename mechanism for the browser binding without weakening original immutability.
+
+Independent stages now include experimental DPDFNet2 denoising, bounded presence EQ, measured loudness normalization and experimental late-tail reverb suppression. Algorithm availability is not production qualification. Video output copies source video packets and replaces audio with the selected enhanced stream; additional audio, subtitle, data and attachment streams are explicitly omitted. Unsupported codec/container combinations fail closed.
+
+Video success also requires actual timestamp evidence; delayed selected audio, shifted common timeline origins and missing/discontinuous timing fail closed. Tested AAC priming/edit-list handling is container-specific. Arbitrary-offset synchronization and representative metadata/chapter preservation evidence are not yet claimed.
 
 Use a **layered, ports-and-adapters pipeline** with asynchronous local jobs.
 
@@ -142,13 +152,13 @@ UI code may not import FFmpeg, ONNX Runtime, or filesystem primitives. Adapters 
 | Name | Version / baseline |
 | --- | --- |
 | Node.js | 24.19.x development baseline; minimum 20.9 per current Next.js requirements |
-| Next.js | 16.3.6, App Router, Node.js server |
+| Next.js | 16.3.5, App Router, Node.js server |
 | React | 19.3.0 |
 | TypeScript | 7.0.2 |
 | Tailwind CSS | 4.3.3 |
 | shadcn/ui CLI | 4.21.0; generated components committed to the repository |
-| FFmpeg | 9.0.2 stable line; provisioned locally with a system override and verified binary |
-| ONNX Runtime Node.js | 1.30.0 |
+| FFmpeg | Custom LGPL-compatible browser WASM core 5.1.4; native FFmpeg is optional diagnostics, not a processing prerequisite |
+| ONNX Runtime Web | 1.30.0, CPU WASM baseline |
 | Zod | 4.6.5 for runtime contracts |
 | Pino | 10.3.1 for structured local logs |
 | Package manager | npm 11.x with lockfile committed |
@@ -168,7 +178,7 @@ Versions are a cold-start seed and must be re-verified during implementation; th
     adapters/                  # FFmpeg, ONNX Runtime, filesystem, persistence
     worker/                    # long-running job execution and progress
   shared/                      # Zod schemas and TypeScript contracts
-  public/                      # static UI assets only
+  public/                      # static UI assets and pinned local worker runtime assets/sources
   models/                      # downloaded/managed model artifacts, ignored or user-managed
   scripts/                     # setup, diagnostics, model and FFmpeg checks
   tests/                       # unit, integration, fixture, and browser tests

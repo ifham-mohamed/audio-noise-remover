@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "qualified": false,
+  "label": "Current evidence audit, not a qualification run",
+  "sources": [
+    {
+      "path": "_bmad-output/specs/spec-ai-noice-removal/implementation-contract.md",
+      "sha256": "737bf6ffdfea693fcc843c21ac864f63bf2f0143c541ac989d52fd8bb7a30aa4"
+    },
+    {
+      "path": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md",
+      "sha256": "c1a5021b55d43f4558ef78170a25db430856c3602849cebdf23c8fb47e6e3975"
+    },
+    {
+      "path": "docs/model-artifacts.md",
+      "sha256": "456684e2c4ad6d0158a012eff812964f55c922489c607c87354b05354c777488"
+    },
+    {
+      "path": "scripts/benchmarks/ears-wham-independent-diagnostic.py",
+      "sha256": "89987f9700779f3fe683a05fe5f074444b6f14632add08adf09f40e1c434e904"
+    },
+    {
+      "path": "models/manifest.json",
+      "sha256": "d74bac47c2e698b034b7e14e4eb37b86bc87e22f87df5d635830045915f6f514"
+    },
+    {
+      "path": "models/dpdfnet2_48khz_hr.onnx",
+      "sha256": "7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b"
+    },
+    {
+      "path": "scripts/benchmarks/model-qualification.ts",
+      "sha256": "f0632782181c1c004b9a3b18d7cbf2d2844e78a8694da3ee4159d22c70823f12"
+    },
+    {
+      "path": "scripts/benchmarks/qualify-model.mjs",
+      "sha256": "7c8e11cf053aa21af8aad99ce9c78e9fc44841d8145c6233ef51e8996a4c4b47"
+    },
+    {
+      "path": "scripts/benchmarks/audit-current-qualification.mjs",
+      "sha256": "cbb4a9a92c70d44d28d3ef9fd3d061724c841f39d6b78beeca6aab795e5966f0"
+    }
+  ],
+  "legacyDiagnostic": {
+    "status": "verified-diagnostic-only",
+    "datasets": [
+      "EARS test speech",
+      "WHAM test noise"
+    ],
+    "evidence": [
+      {
+        "path": "summary.json",
+        "sha256": "a98e999499053dfd0d0c35ba62e22d3b6a9bd03be244a94b2d38f4a1e69414de"
+      },
+      {
+        "path": "per-clip.csv",
+        "sha256": "890c6637e8a2b9c3bbf9fa01a72991857129a78fe73b1c3c33d2bcc18e97fb6f"
+      }
+    ],
+    "inputVerification": {
+      "expected": 11,
+      "recorded": 11,
+      "matched": 11,
+      "missingOrMismatched": 0
+    },
+    "modelMatches": true,
+    "matchesSummary": true,
+    "pairs": 100,
+    "medianStoiGain": 0.05034065912464225,
+    "medianSiSdrGainDb": 6.776558645980168,
+    "medianNativeCpuRtf": 0.4089919124999142,
+    "stoiRegressions": 1,
+    "samplePeakClips": 0,
+    "limitations": [
+      "Private non-commercial diagnostic only; not a production qualification.",
+      "Opus-derived speech and seven reused noise recordings; training overlap unverified.",
+      "No PESQ, listening panel, encoded true peak, approved loudness target or app-path qualification in this run."
+    ]
+  },
+  "gates": [
+    {
+      "id": "manifest",
+      "status": "missing",
+      "detail": "No complete reviewed production manifest is supplied to this current-evidence audit.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "stoi",
+      "status": "fail",
+      "detail": "Documented 100-clip VoiceBank+DEMAND DPDFNet2 median STOI gain 0.0097; required >= 0.03. Historical diagnostic evidence does not qualify production.",
+      "value": 0.0097,
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "rights",
+      "status": "missing",
+      "detail": "No production evaluation rights review; existing EARS/WHAM data is non-commercial and PESQ permission is private/local only.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "independence",
+      "status": "missing",
+      "detail": "Independent source, speaker and noise training-overlap declarations remain unverified.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "coverage",
+      "status": "missing",
+      "detail": "No approved preregistered independent production manifest; legacy diagnostic cannot substitute.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "si-sdr",
+      "status": "missing",
+      "detail": "Exploratory medians exceed 3 dB, but no rights-reviewed independent production per-clip run is supplied.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "pesq-clean",
+      "status": "missing",
+      "detail": "No measured PESQ clean regression; STOI/ViSQOL cannot replace it. Prior Python binding build failed.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "clipping",
+      "status": "missing",
+      "detail": "Zero diagnostic sample clips does not establish encoded true peak or introduced clipping across final outputs.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "loudness",
+      "status": "missing",
+      "detail": "No approved configured target and full encoded-output loudness evidence.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "listening",
+      "status": "missing",
+      "detail": "Mixed six-trial, single-listener preferences do not establish blinded multi-listener speech-damage review.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "runtime",
+      "status": "missing",
+      "detail": "Native wrapper RTF and browser smoke do not establish actual-media CPU cold-offline app runs on all three platforms.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "memory",
+      "status": "missing",
+      "detail": "Peak memory on named Windows, macOS and Linux reference machines remains unmeasured.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    },
+    {
+      "id": "output-integrity",
+      "status": "missing",
+      "detail": "Experimental preview integration does not establish independent qualification of final encoded outputs.",
+      "source": "_bmad-output/implementation-artifacts/speech-model-bakeoff.md"
+    }
+  ]
+}
