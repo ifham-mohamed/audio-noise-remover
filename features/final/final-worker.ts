@@ -4,9 +4,10 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { enhanceWithDpdfnet, DpdfnetModelUnavailable } from "@/features/preview/dpdfnet-adapter";
 import { decodeFloatWav, packFloatWavForFfmpeg } from "@/features/preview/dpdfnet-signal";
 import { validateFinalWav } from "@/features/final/final-artifact-store";
-import { inspectWavChannelCount } from "@/features/final/final-worker-utils";
+import { assertFinalDecodedDuration, inspectWavChannelCount } from "@/features/final/final-worker-utils";
 import { applyVoiceClarity } from "@/features/processing/voice-clarity";
 import { parseEnabledSpeechStages } from "@/shared/contracts/processing";
+import { experimentalFinalLimits } from "@/shared/contracts/final-job";
 
 type Start = { type: "start"; jobId: string; file: File; sourceName: string; sourceSizeBytes: number; sourceDurationSeconds: number; fileName: string; stages: unknown };
 type Request = Start;
@@ -26,7 +27,7 @@ self.onmessage = async (message: MessageEvent<Request>) => {
   if (stages.length === 1 && stages[0]?.id === "voice-clarity" && stages[0].parameters.intensity === 0) {
     emit({ type: "failed", failure: { code: "PROCESSING_FAILED", message: "Set voice clarity above zero before starting final processing. Your source remains unchanged.", action: "effects" } }); return;
   }
-  if (!(request.file instanceof File) || request.file.name !== request.sourceName || request.file.name.toLowerCase().split(".").pop() !== "wav" || request.file.size !== request.sourceSizeBytes || request.file.size === 0 || request.file.size > 128 * 1024 * 1024) {
+  if (!(request.file instanceof File) || request.file.name !== request.sourceName || request.file.name.toLowerCase().split(".").pop() !== "wav" || request.file.size !== request.sourceSizeBytes || request.file.size === 0 || request.file.size > experimentalFinalLimits.maxInputBytes) {
     emit({ type: "failed", failure: { code: "UNSUPPORTED_MEDIA", message: "This experimental export supports WAV files up to 128 MB. Your source remains unchanged.", action: "settings" } }); return;
   }
   const ffmpeg = new FFmpeg();
@@ -42,11 +43,12 @@ self.onmessage = async (message: MessageEvent<Request>) => {
     await ffmpeg.load({ coreURL: base.href, wasmURL: new URL("/ffmpeg/ffmpeg-core.wasm", self.location.origin).href });
     await ffmpeg.writeFile(input, new Uint8Array(await request.file.arrayBuffer())); wroteInput = true;
     emit({ type: "progress", phase: "Decoding the complete WAV locally", stageId: stages[0]!.id, progress: 0.08 });
-    const decodeExit = await ffmpeg.exec(["-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn", "-ar", "48000", "-ac", "1", "-c:a", "pcm_f32le", decodedPath]); wroteDecoded = true;
+    const decodeExit = await ffmpeg.exec(["-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn", "-ar", "48000", "-ac", "1", "-c:a", "pcm_f32le", "-t", String(experimentalFinalLimits.maxDurationSeconds + 0.1), decodedPath]); wroteDecoded = true;
     if (decodeExit !== 0) throw new Error("WAV decoding failed.");
     const decoded = await ffmpeg.readFile(decodedPath); if (typeof decoded === "string") throw new Error("Decoded WAV data is missing.");
     const samples = decodeFloatWav(decoded); const durationSeconds = samples.length / 48_000;
-    if (!durationSeconds || durationSeconds > 120 || Math.abs(durationSeconds - request.sourceDurationSeconds) > 0.05 || durationSeconds > 0.05 && request.file.size / durationSeconds < 1) throw new Error("The WAV duration or audio data does not match the selected source or exceeds the safe 120-second experimental limit.");
+    assertFinalDecodedDuration(durationSeconds, request.sourceDurationSeconds, experimentalFinalLimits.maxDurationSeconds);
+    if (durationSeconds > 0.05 && request.file.size / durationSeconds < 1) throw new Error("The WAV audio data does not match its reported duration.");
     let enhanced = samples;
     const noiseRemoval = stages.find((stage) => stage.id === "noise-removal");
     if (noiseRemoval) {
@@ -74,7 +76,7 @@ self.onmessage = async (message: MessageEvent<Request>) => {
   } catch (cause) {
     const modelMissing = cause instanceof DpdfnetModelUnavailable;
     const resourceExhausted = cause && typeof cause === "object" && ("name" in cause && cause.name === "QuotaExceededError" || "message" in cause && typeof cause.message === "string" && /memory|allocation|out of memory|quota/i.test(cause.message));
-    const sourceUnsupported = cause instanceof Error && /selected source is not|WAV contains|format header|supports only mono or stereo|duration or audio data does not match/i.test(cause.message);
+    const sourceUnsupported = cause instanceof Error && /selected source is not|WAV contains|format header|supports only mono or stereo|duration or audio data does not match|safe \d+-second experimental limit/i.test(cause.message);
     emit({ type: "failed", failure: { code: modelMissing ? "MODEL_UNAVAILABLE" : resourceExhausted ? "RESOURCE_EXHAUSTED" : sourceUnsupported ? "UNSUPPORTED_MEDIA" : "PROCESSING_FAILED", message: modelMissing ? "The pinned experimental model is unavailable or failed verification. Set it up locally, then retry." : sourceUnsupported && cause instanceof Error ? `${cause.message} Choose a supported WAV file and review local export settings.` : "Experimental final processing failed local validation. Temporary data was removed and the source remains unchanged.", action: sourceUnsupported ? "settings" : "diagnostics" } });
   } finally {
     if (ffmpeg.loaded) {

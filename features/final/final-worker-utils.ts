@@ -1,5 +1,10 @@
 const maxWavHeaderBytes = 1024 * 1024;
 
+export function assertFinalDecodedDuration(durationSeconds: number, sourceDurationSeconds: number, maxDurationSeconds: number) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > maxDurationSeconds) throw new Error(`The decoded WAV exceeds the safe ${maxDurationSeconds}-second experimental limit.`);
+  if (!Number.isFinite(sourceDurationSeconds) || Math.abs(durationSeconds - sourceDurationSeconds) > 0.05) throw new Error("The decoded WAV duration does not match the selected source.");
+}
+
 export function inspectWavChannelCount(bytes: Uint8Array): number {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const text = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));

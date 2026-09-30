@@ -1,11 +1,18 @@
 import type * as Ort from "onnxruntime-web/wasm";
-import { DPDFNET_BINS, DPDFNET_WINDOW_LENGTH, spectralFrame, spectralFrameCount, reconstructDpdfnetAudio } from "@/features/preview/dpdfnet-signal";
+import { createDpdfnetAudioReconstructor, DPDFNET_BINS, DPDFNET_WINDOW_LENGTH, spectralFrame, spectralFrameCount } from "@/features/preview/dpdfnet-signal";
 
 const pinnedSha256 = "7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b";
 const stateSize = 56_436;
 const noisyFrameOffset = 4;
 
 export class DpdfnetModelUnavailable extends Error {}
+
+export function appendAlignedNoisyFrame(history: Float32Array[], noisy: Float32Array, frame: number) {
+  const aligned = frame >= noisyFrameOffset ? history[0] : undefined;
+  if (frame >= noisyFrameOffset) history.shift();
+  history.push(noisy);
+  return aligned;
+}
 
 function readVarint(bytes: Uint8Array, cursor: { offset: number }, limit: number) {
   let value = 0;
@@ -107,7 +114,7 @@ export async function enhanceWithDpdfnet(
     const padded = new Float32Array(samples.length + DPDFNET_WINDOW_LENGTH);
     padded.set(samples);
     const frameCount = spectralFrameCount(samples.length);
-    const enhancedFrames: Float32Array[] = [];
+    const reconstructor = createDpdfnetAudioReconstructor(samples.length);
     const noisyHistory: Float32Array[] = [];
     let state = initialState;
     let lastProgressFrame = -1;
@@ -118,7 +125,7 @@ export async function enhanceWithDpdfnet(
     for (let frame = 0; frame < frameCount; frame++) {
       if (isCancelled()) throw new Error("Preview cancelled.");
       const noisy = spectralFrame(padded, frame);
-      noisyHistory.push(noisy);
+      const alignedNoisy = appendAlignedNoisyFrame(noisyHistory, noisy, frame);
       const output = await session.run({
         spec: new ort.Tensor("float32", noisy, [1, 1, DPDFNET_BINS, 2]),
         state_in: new ort.Tensor("float32", state, [stateSize]),
@@ -126,13 +133,12 @@ export async function enhanceWithDpdfnet(
       const enhanced = output.spec_e?.data;
       const nextState = output.state_out?.data;
       if (!(enhanced instanceof Float32Array) || enhanced.length !== DPDFNET_BINS * 2 || !(nextState instanceof Float32Array) || nextState.length !== stateSize) throw new Error("The experimental model returned invalid audio or state.");
-      const alignedNoisy = frame >= noisyFrameOffset ? noisyHistory[frame - noisyFrameOffset] : undefined;
       const blended = new Float32Array(enhanced.length);
       for (let index = 0; index < blended.length; index++) {
         blended[index] = (1 - noisyMix) * enhanced[index] + noisyMix * (alignedNoisy?.[index] ?? 0);
         if (!Number.isFinite(blended[index])) throw new Error("The experimental model returned invalid samples.");
       }
-      enhancedFrames.push(blended);
+      reconstructor.push(blended);
       state = nextState;
       if (frame % 4 === 0 || frame === frameCount - 1) {
         const currentTime = performance.now();
@@ -147,7 +153,7 @@ export async function enhanceWithDpdfnet(
       }
     }
     if (isCancelled()) throw new Error("Preview cancelled.");
-    return reconstructDpdfnetAudio(enhancedFrames, samples.length);
+    return reconstructor.finish();
   } finally {
     await session?.release();
   }

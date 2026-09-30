@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectWavChannelCount } from "@/features/final/final-worker-utils";
+import { assertFinalDecodedDuration, inspectWavChannelCount } from "@/features/final/final-worker-utils";
 
 function wavHeader(channels: number, withJunk = false) {
   const prefix = withJunk ? 12 : 0;
@@ -14,6 +14,13 @@ function wavHeader(channels: number, withJunk = false) {
 }
 
 describe("final WAV channel gate", () => {
+  it("rejects over-limit and mismatched decoded audio before it can be published", () => {
+    expect(() => assertFinalDecodedDuration(300.01, 300, 300)).toThrow(/exceeds the safe 300-second experimental limit/);
+    expect(() => assertFinalDecodedDuration(300, 299, 300)).toThrow(/does not match the selected source/);
+    expect(() => assertFinalDecodedDuration(Number.NaN, 300, 300)).toThrow(/exceeds the safe 300-second experimental limit/);
+    expect(() => assertFinalDecodedDuration(300, 300, 300)).not.toThrow();
+  });
+
   it("accepts mono and stereo headers and finds fmt after bounded ancillary chunks", () => {
     expect(inspectWavChannelCount(wavHeader(1))).toBe(1);
     expect(inspectWavChannelCount(wavHeader(2, true))).toBe(2);

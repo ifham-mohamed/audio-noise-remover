@@ -88,37 +88,63 @@ export function spectralFrameCount(sampleCount: number) {
   return Math.floor((sampleCount + DPDFNET_WINDOW_LENGTH) / DPDFNET_HOP_LENGTH) + 1;
 }
 
-export function reconstructDpdfnetAudio(frames: readonly Float32Array[], requestedSamples: number): Float32Array {
-  const paddedLength = (frames.length - 1) * DPDFNET_HOP_LENGTH + DPDFNET_WINDOW_LENGTH;
-  const summed = new Float64Array(paddedLength);
-  const weight = new Float64Array(paddedLength);
-  for (let frame = 0; frame < frames.length; frame++) {
-    const spectrum = new Float32Array(DPDFNET_WINDOW_LENGTH * 2);
-    spectrum.set(frames[frame]);
-    for (let bin = 1; bin < DPDFNET_WINDOW_LENGTH / 2; bin++) {
-      spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2] = spectrum[bin * 2];
-      spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2 + 1] = -spectrum[bin * 2 + 1];
-    }
-    const time = transform960(spectrum, true);
-    const start = frame * DPDFNET_HOP_LENGTH;
-    for (let index = 0; index < DPDFNET_WINDOW_LENGTH; index++) {
-      summed[start + index] += time[index * 2] * window[index];
-      weight[start + index] += window[index] * window[index];
-    }
-  }
-  // librosa's centered ISTFT drops the first half-window; the publisher then
-  // advances the model's four-hop latency and pads the tail back to input size.
+export function createDpdfnetAudioReconstructor(requestedSamples: number) {
+  if (!Number.isSafeInteger(requestedSamples) || requestedSamples <= 0) throw new Error("Invalid requested DPDFNet output length.");
+  const overlapLength = DPDFNET_WINDOW_LENGTH + DPDFNET_HOP_LENGTH;
+  const summed = new Float64Array(overlapLength);
+  const weight = new Float64Array(overlapLength);
   const output = new Float32Array(requestedSamples);
-  const first = DPDFNET_HOP_LENGTH + DPDFNET_WINDOW_LENGTH * 2;
-  // librosa's default centered ISTFT has (frameCount - 1) * hop samples.
-  // Its publisher path discards two windows after that trim and zero-pads the
-  // tail; overlap-add samples beyond that boundary must not leak into output.
-  const validSamples = Math.max(0, (frames.length - 1) * DPDFNET_HOP_LENGTH - DPDFNET_WINDOW_LENGTH * 2);
-  for (let index = 0; index < requestedSamples && index < validSamples; index++) {
-    const divisor = weight[first + index];
-    output[index] = divisor > 1e-8 ? summed[first + index] / divisor : 0;
-  }
-  return output;
+  let frameCount = 0;
+  let finished = false;
+  return {
+    push(frame: Float32Array) {
+      if (finished) throw new Error("The DPDFNet reconstructor is already finished.");
+      if (frame.length !== DPDFNET_BINS * 2) throw new Error("Invalid DPDFNet output frame.");
+      const spectrum = new Float32Array(DPDFNET_WINDOW_LENGTH * 2);
+      spectrum.set(frame);
+      for (let bin = 1; bin < DPDFNET_WINDOW_LENGTH / 2; bin++) {
+        spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2] = spectrum[bin * 2];
+        spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2 + 1] = -spectrum[bin * 2 + 1];
+      }
+      const time = transform960(spectrum, true);
+      const start = frameCount * DPDFNET_HOP_LENGTH;
+      for (let index = 0; index < DPDFNET_WINDOW_LENGTH; index++) {
+        const slot = (start + index) % overlapLength;
+        summed[slot] += time[index * 2] * window[index];
+        weight[slot] += window[index] * window[index];
+      }
+      // No future frame overlaps this hop after the current frame is added.
+      // Normalize it now and reuse the small overlap buffers for later frames.
+      const first = DPDFNET_HOP_LENGTH + DPDFNET_WINDOW_LENGTH * 2;
+      for (let index = 0; index < DPDFNET_HOP_LENGTH; index++) {
+        const absolute = start + index;
+        const outputIndex = absolute - first;
+        const slot = absolute % overlapLength;
+        if (outputIndex >= 0 && outputIndex < output.length) {
+          const divisor = weight[slot];
+          output[outputIndex] = divisor > 1e-8 ? summed[slot] / divisor : 0;
+        }
+        summed[slot] = 0;
+        weight[slot] = 0;
+      }
+      frameCount++;
+    },
+    finish() {
+      if (finished) throw new Error("The DPDFNet reconstructor is already finished.");
+      finished = true;
+      // librosa's centered ISTFT drops the first half-window; the publisher
+      // then advances its model latency and pads the tail back to input size.
+      const validSamples = Math.max(0, (frameCount - 1) * DPDFNET_HOP_LENGTH - DPDFNET_WINDOW_LENGTH * 2);
+      output.fill(0, Math.min(validSamples, output.length));
+      return output;
+    }
+  };
+}
+
+export function reconstructDpdfnetAudio(frames: readonly Float32Array[], requestedSamples: number): Float32Array {
+  const reconstructor = createDpdfnetAudioReconstructor(requestedSamples);
+  for (const frame of frames) reconstructor.push(frame);
+  return reconstructor.finish();
 }
 
 export function decodeFloatWav(bytes: Uint8Array): Float32Array {

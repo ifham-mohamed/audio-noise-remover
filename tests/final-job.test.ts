@@ -86,6 +86,14 @@ describe("final job contract and coordinator", () => {
     expect(() => incompatible.consume(invalidJob.id, { type: "succeeded", jobId: invalidJob.id, sequence: 2, elapsedMs: 1_000, output })).toThrow(/unsupported/);
   });
 
+  it("supports the selected 4:57 recording but rejects audio beyond the five-minute experimental limit", () => {
+    const recording: MediaMetadata = { ...media, sizeBytes: 27_200_000, durationSeconds: 297, audioStream: { ...media.audioStream, channels: 1, sampleRate: 48_000 } };
+    const recordingProfile = { ...profile, mediaRef: recording.sourceRef };
+    expect(isSupportedExperimentalFinalProfile(recording, recordingProfile)).toBe(true);
+    expect(isSupportedExperimentalFinalProfile({ ...recording, durationSeconds: 300 }, recordingProfile)).toBe(true);
+    expect(isSupportedExperimentalFinalProfile({ ...recording, durationSeconds: 300.01 }, recordingProfile)).toBe(false);
+  });
+
   it("accepts zero-gain clarity alongside active denoising but rejects a clarity-only no-op", () => {
     const shortMedia: MediaMetadata = { ...media, sizeBytes: 48_044, durationSeconds: 1, audioStream: { ...media.audioStream, channels: 1, sampleRate: 48_000 } };
     const combined = { ...profile, mediaRef: shortMedia.sourceRef, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" || stage.id === "voice-clarity", parameters: stage.id === "voice-clarity" ? { intensity: 0 } : stage.parameters })) };

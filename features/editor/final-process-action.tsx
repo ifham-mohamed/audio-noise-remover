@@ -16,7 +16,9 @@ export function FinalProcessAction({ media, profile, file, fileAvailable }: { me
   const valid = createFinalJobRequestSchema.safeParse({ media, profile }).success;
   const supported = isSupportedExperimentalFinalProfile(media, profile) && !!file && file.name.toLowerCase().endsWith(".wav");
   const clarityAtZeroWithoutOtherWork = profile.stages.some((stage) => stage.id === "voice-clarity" && stage.enabled && stage.parameters.intensity === 0) && !profile.stages.some((stage) => stage.id === "noise-removal" && stage.enabled && stage.parameters.intensity > 0);
-  const unavailableReason = file && file.size > experimentalFinalLimits.maxInputBytes ? "This file is larger than the 128 MB experimental limit." : media.durationSeconds > experimentalFinalLimits.maxDurationSeconds ? "This media is longer than the 120-second experimental limit." : media.format !== "wav" ? "Only WAV audio is available for experimental final export." : clarityAtZeroWithoutOtherWork ? "Set voice clarity above zero before starting final processing." : !supported ? "Choose WAV output, enable noise removal and/or voice clarity, and select a valid output name." : undefined;
+  const maxDuration = experimentalFinalLimits.maxDurationSeconds;
+  const maxDurationLabel = maxDuration % 60 === 0 ? `${maxDuration / 60}-minute` : `${maxDuration}-second`;
+  const unavailableReason = file && file.size > experimentalFinalLimits.maxInputBytes ? "This file is larger than the 128 MB experimental limit." : media.durationSeconds > maxDuration ? `This media is longer than the ${maxDurationLabel} experimental limit.` : media.format !== "wav" ? "Only WAV audio is available for experimental final export." : clarityAtZeroWithoutOtherWork ? "Set voice clarity above zero before starting final processing." : !supported ? "Choose WAV output, enable noise removal and/or voice clarity, and select a valid output name." : undefined;
   async function start() {
     if (pending || !valid || !fileAvailable || !file || !supported || file.size > experimentalFinalLimits.maxInputBytes) return;
     setPending(true); setError(undefined);

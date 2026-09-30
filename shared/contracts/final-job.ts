@@ -72,7 +72,7 @@ export const cleanupRequestEnvelopeSchema = z.strictObject({ data: cleanupReques
 export const cleanupResultEnvelopeSchema = z.strictObject({ data: cleanupResultSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string().uuid() });
 export type FinalJobId = z.infer<typeof finalJobIdSchema>;
 
-export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDurationSeconds: 120 } as const;
+export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDurationSeconds: 300 } as const;
 
 export function isSupportedExperimentalFinalProfile(media: MediaMetadata, profile: ProcessingProfile) {
   const enabled = profile.stages.filter((stage) => stage.enabled);

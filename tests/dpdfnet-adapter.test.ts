@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { initialDpdfnetState } from "@/features/preview/dpdfnet-adapter";
-import { DPDFNET_WINDOW_LENGTH, reconstructDpdfnetAudio, spectralFrame, spectralFrameCount, transform960 } from "@/features/preview/dpdfnet-signal";
+import { appendAlignedNoisyFrame, initialDpdfnetState } from "@/features/preview/dpdfnet-adapter";
+import { DPDFNET_HOP_LENGTH, DPDFNET_WINDOW_LENGTH, reconstructDpdfnetAudio, spectralFrame, spectralFrameCount, transform960 } from "@/features/preview/dpdfnet-signal";
 
 describe("pinned DPDFNet2 adapter parity", () => {
+  it("keeps only the noisy frames needed for four-frame alignment", () => {
+    const history: Float32Array[] = [];
+    const frames = Array.from({ length: 20 }, (_, index) => Float32Array.of(index));
+    for (let index = 0; index < frames.length; index++) {
+      expect(appendAlignedNoisyFrame(history, frames[index]!, index)).toBe(index >= 4 ? frames[index - 4] : undefined);
+      expect(history.length).toBeLessThanOrEqual(4);
+    }
+  });
+
   it("reads nonzero normalization state from ONNX custom metadata", () => {
     const varint = (input: number) => {
       const output: number[] = [];
@@ -63,5 +72,46 @@ describe("pinned DPDFNet2 adapter parity", () => {
     const output = reconstructDpdfnetAudio(frames, input.length);
     for (const index of [0, 100, 1000, 2800]) expect(output[index]).toBeCloseTo(input[index + 1920], 3);
     expect(output.slice(-960).every((value) => value === 0)).toBe(true);
+  });
+
+  it("matches the reference overlap-add at hop boundaries and zero-pads the same tail", () => {
+    const reference = (frames: readonly Float32Array[], requestedSamples: number) => {
+      const paddedLength = (frames.length - 1) * DPDFNET_HOP_LENGTH + DPDFNET_WINDOW_LENGTH;
+      const summed = new Float64Array(paddedLength);
+      const weight = new Float64Array(paddedLength);
+      const window = Float64Array.from({ length: DPDFNET_WINDOW_LENGTH }, (_, index) => {
+        const sine = Math.sin(Math.PI * (index + 0.5) / DPDFNET_WINDOW_LENGTH);
+        return Math.sin(Math.PI * sine * sine / 2);
+      });
+      for (let frame = 0; frame < frames.length; frame++) {
+        const spectrum = new Float32Array(DPDFNET_WINDOW_LENGTH * 2);
+        spectrum.set(frames[frame]!);
+        for (let bin = 1; bin < DPDFNET_WINDOW_LENGTH / 2; bin++) {
+          spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2] = spectrum[bin * 2]!;
+          spectrum[(DPDFNET_WINDOW_LENGTH - bin) * 2 + 1] = -spectrum[bin * 2 + 1]!;
+        }
+        const time = transform960(spectrum, true);
+        const start = frame * DPDFNET_HOP_LENGTH;
+        for (let index = 0; index < DPDFNET_WINDOW_LENGTH; index++) {
+          summed[start + index] += time[index * 2]! * window[index]!;
+          weight[start + index] += window[index]! * window[index]!;
+        }
+      }
+      const output = new Float32Array(requestedSamples);
+      const first = DPDFNET_HOP_LENGTH + DPDFNET_WINDOW_LENGTH * 2;
+      const valid = Math.max(0, (frames.length - 1) * DPDFNET_HOP_LENGTH - DPDFNET_WINDOW_LENGTH * 2);
+      for (let index = 0; index < Math.min(requestedSamples, valid); index++) {
+        const divisor = weight[first + index]!;
+        output[index] = divisor > 1e-8 ? summed[first + index]! / divisor : 0;
+      }
+      return output;
+    };
+
+    for (const sampleCount of [1, 479, 480, 481, 959, 960, 961, 4_800, 48_001]) {
+      const padded = new Float32Array(sampleCount + DPDFNET_WINDOW_LENGTH);
+      for (let index = 0; index < sampleCount; index++) padded[index] = Math.sin(index * 0.031) * 0.3;
+      const frames = Array.from({ length: spectralFrameCount(sampleCount) }, (_, index) => spectralFrame(padded, index));
+      expect(reconstructDpdfnetAudio(frames, sampleCount)).toEqual(reference(frames, sampleCount));
+    }
   });
 });

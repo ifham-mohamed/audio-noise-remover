@@ -16,6 +16,17 @@ function supportedProfile() { const profile = defaultProcessingProfile(media.sou
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); push.mockClear(); });
 
 describe("final process action", () => {
+  it("enables full local processing for a 4:57 WAV and explains the five-minute boundary", () => {
+    const recording: MediaMetadata = { ...media, sizeBytes: 27_200_000, durationSeconds: 297 };
+    const profile = supportedProfile();
+    const file = new File([new Uint8Array(44)], "speech.wav", { type: "audio/wav" });
+    const { rerender } = render(<FinalProcessAction media={recording} profile={profile} file={file} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeEnabled();
+    rerender(<FinalProcessAction media={{ ...recording, durationSeconds: 300.01 }} profile={profile} file={file} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("5-minute experimental limit");
+  });
+
   it("keeps Process unavailable for unsupported profiles and explains the experimental limits", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

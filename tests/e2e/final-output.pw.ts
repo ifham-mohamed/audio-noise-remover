@@ -4,6 +4,19 @@ import path from "node:path";
 
 const fixture = path.resolve(__dirname, "../fixtures/preview/tone.wav");
 
+function makeToneWav(durationSeconds: number) {
+  const sampleRate = 48_000;
+  const sampleCount = durationSeconds * sampleRate;
+  const dataBytes = sampleCount * 2;
+  const bytes = Buffer.alloc(44 + dataBytes);
+  bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(sampleRate, 24); bytes.writeUInt32LE(sampleRate * 2, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36); bytes.writeUInt32LE(dataBytes, 40);
+  for (let sample = 0; sample < sampleCount; sample++) bytes.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 3_000 * sample / sampleRate) * 5_000), 44 + sample * 2);
+  return bytes;
+}
+
 test("creates a validated experimental full-file WAV artifact locally", async ({ page }) => {
   test.setTimeout(120_000);
   await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined }));
@@ -101,6 +114,22 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   await expect(page.getByRole("alert").filter({ hasText: "no longer available in this browser" })).toBeVisible();
   await expect(page.getByLabel("Listen to the validated experimental final output")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download WAV" })).toHaveCount(0);
+});
+
+test("processes and validates a complete five-minute experimental WAV output", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles({ name: "long-test-tone.wav", mimeType: "audio/wav", buffer: makeToneWav(300) });
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Process" })).toBeEnabled();
+  await page.getByRole("switch", { name: "Noise removal enabled" }).click();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("Local voice-clarity output validated")).toBeVisible({ timeout: 150_000 });
+  await expect(page.getByText(/long-test-tone\.wav.*300\.0 seconds/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Download WAV" })).toBeEnabled();
 });
 
 test("uses a browser download instead of an unsafe path picker", async ({ page }) => {
@@ -284,6 +313,7 @@ test("does not create a retry attempt when retained source bytes are unreadable"
 });
 
 test("cancels an active local worker and retains no final artifact", async ({ page }) => {
+  test.setTimeout(180_000);
   let announceModelRequest!: () => void;
   let releaseModelResponse!: () => void;
   const modelRequested = new Promise<void>((resolve) => { announceModelRequest = resolve; });
@@ -305,7 +335,7 @@ test("cancels an active local worker and retains no final artifact", async ({ pa
     await route.continue();
   });
   await page.goto("http://127.0.0.1:3100");
-  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await page.locator('input[type="file"]').first().setInputFiles({ name: "long-cancel-test-tone.wav", mimeType: "audio/wav", buffer: makeToneWav(300) });
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
