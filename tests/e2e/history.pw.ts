@@ -39,3 +39,22 @@ test("navigates to local History, filters and resets, then opens an active run",
   await page.getByRole("link", { name: "View run for history-speech.wav" }).click();
   await expect(page).toHaveURL(new RegExp(`/processing/${activeJob.id}$`));
 });
+
+test("keeps save unavailable when a persisted success record has no browser-local output", async ({ page }) => {
+  const success = {
+    ...activeJob,
+    id: "00000000-0000-4000-8000-000000000301",
+    state: "succeeded",
+    sequence: 2,
+    phase: undefined,
+    progress: undefined,
+    output: { artifactId: "00000000-0000-4000-8000-000000000302", fileName: "history-result.wav", mimeType: "audio/wav", sizeBytes: 48044, durationSeconds: 1, mediaValidated: true, experimental: true },
+  };
+  await page.route("**/api/final-jobs", (route) => route.fulfill({ status: 200, contentType: "application/json", headers: { "Cache-Control": "no-store" }, body: JSON.stringify({ data: [success], error: null, requestId: "history-restart-e2e" }) }));
+  await page.goto("http://127.0.0.1:3100/history");
+  await expect(page.getByRole("heading", { name: "history-speech.wav" })).toBeVisible();
+  await page.getByText("Attempt details").click();
+  await expect(page.getByRole("status").filter({ hasText: "not available or no longer matches" })).toBeVisible();
+  await expect(page.getByText(/No source media is used as a substitute/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download WAV" })).toHaveCount(0);
+});

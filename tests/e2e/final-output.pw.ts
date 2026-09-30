@@ -71,6 +71,19 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   expect(downloadedBytes.byteLength).toBe(artifacts.outputs[0]!.bytes.length);
   expect(downloadedBytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
   expect([...downloadedBytes]).toEqual(artifacts.outputs[0]!.bytes);
+  const processingUrl = page.url();
+  await page.getByRole("link", { name: "History", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "tone.wav" })).toBeVisible();
+  await page.getByText("Attempt details").click();
+  const historyActions = page.getByRole("group", { name: "Local output actions" });
+  await expect(historyActions.getByRole("button", { name: "Download WAV" })).toBeEnabled();
+  const historyDownloadPromise = page.waitForEvent("download");
+  await historyActions.getByRole("button", { name: "Download WAV" }).click();
+  const historyDownload = await historyDownloadPromise;
+  expect(historyDownload.suggestedFilename()).toBe(artifacts.outputs[0]!.fileName);
+  expect([...(await readFile((await historyDownload.path())!))]).toEqual(artifacts.outputs[0]!.bytes);
+  await expect(historyActions.getByRole("status")).toContainText(/browser has been asked to download this WAV/i);
+  await page.goto(processingUrl);
   await page.evaluate(async (artifactId) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("ai-noice-removal-final-artifacts", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     try { await new Promise<void>((resolve, reject) => { const tx = db.transaction("outputs", "readwrite"); const store = tx.objectStore("outputs"); const get = store.get(artifactId); get.onsuccess = () => { const output = get.result; new Uint8Array(output.bytes)[0] = 78; store.put(output); }; tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); } finally { db.close(); }

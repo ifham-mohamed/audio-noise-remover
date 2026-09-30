@@ -30,6 +30,15 @@ describe("local capability detector", () => {
     expect(report.items.find((item) => item.id === "compute")?.summary).toMatch(/CPU-safe/);
   });
 
+  it.each([
+    ["Windows", "win32" as NodeJS.Platform],
+    ["macOS", "darwin" as NodeJS.Platform],
+    ["Linux", "linux" as NodeJS.Platform],
+  ])("reports %s runtime identity for cross-platform capability decisions", async (_label, platform) => {
+    const report = await createCapabilityDetector({ ...baseOptions, platform }).detect();
+    expect(report.runtime.os).toBe(platform);
+  });
+
   it("reports missing tools and low storage without exposing command output", async () => {
     const report = await createCapabilityDetector({
       ...baseOptions,
