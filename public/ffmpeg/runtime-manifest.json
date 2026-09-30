@@ -1,0 +1,7 @@
+{
+  "version": "5.1.4",
+  "files": {
+    "ffmpeg-core.js": "dcf68da6844920453ba632c4c1f25b2da686c9f131f60ed42ee66f090d78cba5",
+    "ffmpeg-core.wasm": "bb4c4e3ba7f443ca5f05bc6fbf52494c51d696f3a959c4d1baacb6b5af15c18c"
+  }
+}

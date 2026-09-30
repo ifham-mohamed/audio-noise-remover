@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import type { CapabilityDetector } from "@/server/ports/capability-detector";
 import type { CapabilityItem, CapabilityReport } from "@/shared/contracts/capabilities";
 
@@ -14,6 +16,7 @@ type DetectorOptions = {
   now?: () => Date;
   cwd?: string;
   runCommand?: (command: string) => Promise<string>;
+  inspectBrowserRuntime?: () => Promise<{ version: string } | null>;
   inspectStorage?: (directory: string) => Promise<{ writable: boolean; availableBytes: number }>;
   modelManifest?: () => Promise<{ version: string; license?: string } | null>;
   platform?: NodeJS.Platform;
@@ -21,6 +24,26 @@ type DetectorOptions = {
   nodeVersion?: string;
   accelerationProvider?: string | null;
 };
+
+const browserRuntimeManifestSchema = z.strictObject({
+  version: z.literal("5.1.4"),
+  files: z.strictObject({
+    "ffmpeg-core.js": z.string().regex(/^[a-f0-9]{64}$/),
+    "ffmpeg-core.wasm": z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+});
+
+async function defaultInspectBrowserRuntime(directory: string) {
+  const runtimeDirectory = path.join(directory, "public", "ffmpeg");
+  const manifest = browserRuntimeManifestSchema.parse(JSON.parse(await readFile(path.join(runtimeDirectory, "runtime-manifest.json"), "utf8")));
+  for (const [file, expectedHash] of Object.entries(manifest.files)) {
+    const bytes = await readFile(path.join(runtimeDirectory, file));
+    if (!bytes.length || createHash("sha256").update(bytes).digest("hex") !== expectedHash) {
+      throw new Error("Bundled browser runtime verification failed.");
+    }
+  }
+  return { version: manifest.version };
+}
 
 async function defaultRunCommand(command: string) {
   const { stdout } = await execFileAsync(process.env.FFMPEG_PATH || command, ["-version"], { timeout: 2500, windowsHide: true });
@@ -57,6 +80,7 @@ async function defaultModelManifest(directory: string) {
 export function createCapabilityDetector(options: DetectorOptions = {}): CapabilityDetector {
   const cwd = options.cwd ?? process.cwd();
   const runCommand = options.runCommand ?? defaultRunCommand;
+  const inspectBrowserRuntime = options.inspectBrowserRuntime ?? (() => defaultInspectBrowserRuntime(cwd));
   const inspectStorage = options.inspectStorage ?? defaultInspectStorage;
   const modelManifest = options.modelManifest ?? (() => defaultModelManifest(cwd));
 
@@ -69,19 +93,26 @@ export function createCapabilityDetector(options: DetectorOptions = {}): Capabil
         architecture: options.architecture ?? process.arch,
       };
 
-      let ffmpegVersion: string | undefined;
+      try {
+        const browserRuntime = await inspectBrowserRuntime();
+        if (!browserRuntime || browserRuntime.version !== "5.1.4") throw new Error("Bundled browser runtime is unavailable.");
+        items.push({ id: "ffmpeg", label: "Browser FFmpeg", status: "ready", summary: "Bundled local media runtime files match their SHA-256 manifest. Browser execution is checked when processing starts.", version: browserRuntime.version });
+      } catch {
+        items.push({ id: "ffmpeg", label: "Browser FFmpeg", status: "unavailable", code: "FFMPEG_UNAVAILABLE", summary: "Bundled local media runtime files or their hash manifest are missing, invalid, or do not match.", actionLabel: "Restore the bundled FFmpeg runtime and manifest" });
+      }
+
       try {
         const firstLine = await runCommand("ffmpeg");
-        ffmpegVersion = firstLine.match(/ffmpeg version\s+([^\s]+)/i)?.[1];
+        const ffmpegVersion = firstLine.match(/ffmpeg version\s+([^\s]+)/i)?.[1];
         if (!ffmpegVersion) throw new Error("FFmpeg version could not be verified");
-        items.push({ id: "ffmpeg", label: "FFmpeg", status: "ready", summary: "Media inspection is available locally.", version: ffmpegVersion });
+        items.push({ id: "native-ffmpeg", label: "Native FFmpeg (optional)", status: "ready", summary: "Optional native diagnostics and developer tooling are available. Browser processing uses the bundled runtime.", version: ffmpegVersion });
       } catch {
-        items.push({ id: "ffmpeg", label: "FFmpeg", status: "unavailable", code: "FFMPEG_UNAVAILABLE", summary: "FFmpeg was not found or could not be verified.", actionLabel: "Install or configure FFmpeg" });
+        items.push({ id: "native-ffmpeg", label: "Native FFmpeg (optional)", status: "limited", code: "FFMPEG_UNAVAILABLE", summary: "Optional native diagnostics are unavailable. Native FFmpeg is not required for browser processing." });
       }
 
       const manifest = await modelManifest();
       items.push(manifest
-        ? { id: "models", label: "Speech models", status: "ready", summary: `A local model is available${manifest.license ? ` under ${manifest.license}.` : "."}`, version: manifest.version }
+        ? { id: "models", label: "Speech models", status: "ready", summary: `An experimental local model manifest is available${manifest.license ? ` under ${manifest.license}.` : "."} This does not establish production qualification or successful inference.`, version: manifest.version }
         : { id: "models", label: "Speech models", status: "unavailable", code: "MODEL_UNAVAILABLE", summary: "No local speech model manifest was found yet.", actionLabel: "Open setup guidance" });
 
       const storage = await inspectStorage(cwd);

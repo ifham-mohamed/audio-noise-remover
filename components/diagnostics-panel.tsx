@@ -82,7 +82,7 @@ export function DiagnosticsPanel({ initialReport }: DiagnosticsPanelProps) {
     const browser = report?.items.filter((item) => item.id.startsWith("browser-")) ?? browserItems;
     return [
       { title: "Runtime", icon: Cpu, ids: ["compute"] },
-      { title: "Media tools", icon: ShieldCheck, ids: ["ffmpeg"] },
+      { title: "Media tools", icon: ShieldCheck, ids: ["ffmpeg", "native-ffmpeg"] },
       { title: "Models", icon: Laptop, ids: ["models"] },
       { title: "Storage", icon: HardDrive, ids: ["storage"] },
       { title: "Browser", icon: Laptop, ids: browser.map((item) => item.id) },

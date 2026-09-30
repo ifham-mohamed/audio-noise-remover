@@ -78,6 +78,40 @@ try {
     throw new Error(`Bundled local FFmpeg core failed final PCM24 WAV encoding (exit=${core.ret}, bytes=${finalOutput.byteLength}).`);
   }
   console.log(`Bundled local FFmpeg core passed complete WAV-to-PCM24-WAV encoding (${finalOutput.byteLength} bytes).`);
+  for (const [extension, codec, muxer] of [["flac", "flac", "flac"], ["mp3", "libmp3lame", "mp3"], ["m4a", "aac", "ipod"]]) {
+    const encodedPath = `/roundtrip.${extension}`;
+    const flags = ["-i", "/experimental-input.wav", "-ar", "48000", "-ac", "1", "-c:a", codec];
+    if (codec === "aac" || codec === "libmp3lame") flags.push("-b:a", "192k");
+    core.exec(...flags, "-f", muxer, encodedPath);
+    if (core.ret !== 0 || core.FS.readFile(encodedPath).length < 32) throw new Error(`${extension} encoding failed.`);
+    core.exec("-i", encodedPath, "-map", "0:a:0", "-vn", "-ar", "48000", "-ac", "1", "-c:a", "pcm_f32le", "/roundtrip.wav");
+    const roundtrip = core.FS.readFile("/roundtrip.wav");
+    const roundView = new DataView(roundtrip.buffer, roundtrip.byteOffset, roundtrip.byteLength);
+    let length = 0;
+    for (let offset = 12; offset + 8 <= roundtrip.length;) {
+      const size = roundView.getUint32(offset + 4, true);
+      if (String.fromCharCode(...roundtrip.subarray(offset, offset + 4)) === "data") length = size;
+      offset += 8 + size + size % 2;
+    }
+    if (core.ret !== 0 || Math.abs(length / (48000 * 4) - 0.5) > 0.05) throw new Error(`${extension} roundtrip duration/decode failed.`);
+    console.log(`Bundled core passed ${extension.toUpperCase()} encode/decode roundtrip.`);
+    core.FS.unlink(encodedPath); core.FS.unlink("/roundtrip.wav");
+  }
+  for (const extension of ["mp4", "mov", "mkv"]) {
+    const fixture = new URL(`../tests/fixtures/preview/tone.${extension}`, import.meta.url);
+    const sourcePath = `/source.${extension}`, outputPath = `/enhanced.${extension}`;
+    core.FS.writeFile(sourcePath, new Uint8Array(await readFile(fixture)));
+    core.exec("-i", sourcePath, "-map", "0:v", "-c:v", "copy", "-an", "-f", "streamhash", "-hash", "sha256", "/source.sha256");
+    if (core.ret !== 0) throw new Error(`${extension} original video hashing failed.`);
+    const sourceHash = Buffer.from(core.FS.readFile("/source.sha256")).toString("utf8");
+    core.exec("-i", sourcePath, "-i", "/experimental-input.wav", "-map", "0:v", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "1", outputPath);
+    if (core.ret !== 0) throw new Error(`${extension} AAC/video remux failed.`);
+    core.exec("-i", outputPath, "-map", "0:v", "-c:v", "copy", "-an", "-f", "streamhash", "-hash", "sha256", "/output.sha256");
+    const outputHash = Buffer.from(core.FS.readFile("/output.sha256")).toString("utf8");
+    if (core.ret !== 0 || sourceHash !== outputHash || !sourceHash.includes("SHA256=")) throw new Error(`${extension} video packets changed during remux.`);
+    console.log(`Bundled core passed ${extension.toUpperCase()} AAC remux with identical video packet fingerprints.`);
+    for (const file of [sourcePath, outputPath, "/source.sha256", "/output.sha256"]) core.FS.unlink(file);
+  }
   core.FS.unlink("/experimental-output.wav");
   core.FS.unlink("/experimental-input.wav");
   core.FS.unlink("/decoded.wav");
