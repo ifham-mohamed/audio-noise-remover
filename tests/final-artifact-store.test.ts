@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { FINAL_OUTPUT_MAX_BYTES, openFinalOutput, openFinalSource, removeFinalOutput, removeFinalSource, retainFinalOutput, saveFinalSource, validateFinalWav } from "@/features/final/final-artifact-store";
+import { FINAL_OUTPUT_MAX_BYTES, listFinalArtifactIds, listFinalSourceRefs, openFinalOutput, openFinalSource, removeFinalOutput, removeFinalOutputs, removeFinalSource, removeFinalSources, retainFinalOutput, saveFinalSource, validateFinalWav } from "@/features/final/final-artifact-store";
 
 beforeEach(() => vi.stubGlobal("indexedDB", new IDBFactory()));
 afterEach(() => vi.unstubAllGlobals());
@@ -79,6 +79,19 @@ describe("local final artifact store", () => {
     expect(await openFinalOutput("final-output-a")).toBeDefined();
     await removeFinalOutput("final-output-a");
     expect(await openFinalOutput("final-output-a")).toBeUndefined();
+  });
+
+  it("enumerates and removes selected outputs and retained retry copies", async () => {
+    const blob = makeWav(); const sourceRef = "local:retry-source:17:4";
+    const { artifactId, ...metadata } = details(blob, "00000000-0000-4000-8000-000000000013");
+    await retainFinalOutput(artifactId, blob, metadata);
+    await saveFinalSource(sourceRef, new File(["retained source"], "retry.wav", { type: "audio/wav" }));
+    expect(await listFinalArtifactIds()).toContain(artifactId);
+    expect(await listFinalSourceRefs()).toContain(sourceRef);
+    await expect(removeFinalOutputs([artifactId])).resolves.toMatchObject([{ id: artifactId, removed: true }]);
+    await expect(removeFinalSources([sourceRef])).resolves.toMatchObject([{ id: sourceRef, removed: true }]);
+    expect(await openFinalOutput(artifactId)).toBeUndefined();
+    expect(await openFinalSource(sourceRef)).toBeUndefined();
   });
 
   it("never overwrites a source snapshot or immutable final artifact with the same identifier", async () => {

@@ -12,6 +12,7 @@ import {
   type FinalJobEvent,
 } from "@/shared/contracts/final-job";
 import modelManifest from "@/models/manifest.json";
+import { assertLocalCleanupInactive } from "@/server/domain/local-cleanup-gate";
 
 type Dependencies = {
   store?: FinalJobStore;
@@ -74,6 +75,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
   }
   async function create(input: unknown, requestId?: string) {
     assertStoreReady();
+    assertLocalCleanupInactive();
     const request = createFinalJobRequestSchema.parse(input);
     const previous = request.retryOfJobId ? get(request.retryOfJobId) : undefined;
     if (previous) {
@@ -126,6 +128,48 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
   function list() {
     assertStoreReady();
     return [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(cloneJob);
+  }
+  function applyCleanup(input: { scope: "REMOVE_PREVIEWS" | "REMOVE_OUTPUTS" | "CLEAR_HISTORY" | "REMOVE_ALL"; removedOutputIds: string[]; failedOutputIds?: string[]; removedSourceRefs: string[]; deleteHistoryIds: string[] }) {
+    assertStoreReady();
+    const candidate = new Map(jobs); const removedHistory: string[] = []; const skippedActive: string[] = [];
+    const protectedAncestry = new Set<string>();
+    for (const job of candidate.values()) {
+      if (terminal.has(job.state)) continue;
+      let ancestor = job.retryOf;
+      while (ancestor && !protectedAncestry.has(ancestor)) {
+        protectedAncestry.add(ancestor);
+        ancestor = candidate.get(ancestor)?.retryOf;
+      }
+    }
+    const removedOutputs = new Set(input.removedOutputIds);
+    const failedOutputIds = new Set(input.failedOutputIds ?? []);
+    for (const [id, current] of candidate) {
+      if (terminal.has(current.state)) continue;
+      skippedActive.push(id);
+    }
+    for (const [id, current] of candidate) {
+      if (!terminal.has(current.state)) continue;
+      const outputRemoved = current.output && removedOutputs.has(current.output.artifactId);
+      const outputFailed = current.output && failedOutputIds.has(current.output.artifactId);
+      if ((input.scope === "REMOVE_OUTPUTS" || input.scope === "REMOVE_ALL") && outputRemoved) candidate.set(id, { ...current, outputAvailability: "removed", updatedAt: now() });
+      else if (outputFailed) candidate.set(id, { ...current, outputAvailability: "available", updatedAt: now() });
+      if ((input.scope === "CLEAR_HISTORY") && input.deleteHistoryIds.includes(id)) {
+        if (protectedAncestry.has(id)) continue;
+        candidate.delete(id); removedHistory.push(id);
+      }
+    }
+    if (removedHistory.length || removedOutputs.size || failedOutputIds.size) commit(candidate);
+    return { removedHistory, skippedActive, skippedAncestry: [...protectedAncestry].filter((id) => input.deleteHistoryIds.includes(id)) };
+  }
+  function markOutputsAvailability(ids: string[], availability: "removing" | "available") {
+    assertStoreReady();
+    const targets = new Set(ids); const candidate = new Map(jobs); let changed = false;
+    for (const [id, current] of candidate) {
+      if (current.output && targets.has(current.output.artifactId) && terminal.has(current.state)) {
+        candidate.set(id, { ...current, outputAvailability: availability, updatedAt: now() }); changed = true;
+      }
+    }
+    if (changed) commit(candidate);
   }
   function cancel(id: string) {
     assertStoreReady();
@@ -250,6 +294,6 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
     commit(candidate);
     return cloneJob(next);
   }
-  return { create, get, list, cancel, consume };
+  return { create, get, list, cancel, consume, applyCleanup, markOutputsAvailability };
 }
 export const finalJobCoordinator = createFinalJobCoordinator();

@@ -171,6 +171,14 @@ describe("local history view", () => {
     expect(within(row).queryByRole("button", { name: "Retry as a new attempt" })).not.toBeInTheDocument();
   });
 
+  it("labels removed successful output while retaining its safe metadata", async () => {
+    const removed = finalJobSchema.parse({ ...makeJob("removed.wav", "2026-09-30T12:00:00.000Z", "succeeded"), outputAvailability: "removed" });
+    mockList([removed]); render(<HistoryView />);
+    fireEvent.click(await screen.findByText("Attempt details"));
+    const row = screen.getByText("Output removed · result.wav · audio/wav · 500 bytes · 125 seconds");
+    expect(row).toBeInTheDocument();
+  });
+
   it("identifies a missing retry parent while keeping the attempt details available", async () => {
     const orphan = finalJobSchema.parse({
       ...makeJob("orphan.wav", "2026-09-30T13:00:00.000Z", "cancelled"),

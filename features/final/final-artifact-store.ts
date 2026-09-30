@@ -199,3 +199,33 @@ export async function removeFinalOutput(artifactId: string): Promise<void> {
   try { const tx = db.transaction(outputStoreName, "readwrite"); tx.objectStore(outputStoreName).delete(artifactId); await transactionDone(tx); }
   finally { db.close(); }
 }
+
+export async function listFinalArtifactIds(): Promise<string[]> {
+  const db = await openDatabase();
+  try { const records = await requestResult(db.transaction(outputStoreName, "readonly").objectStore(outputStoreName).getAll()) as StoredOutput[]; return records.map((record) => record.artifactId); }
+  finally { db.close(); }
+}
+
+export async function listFinalSourceRefs(): Promise<string[]> {
+  const db = await openDatabase();
+  try { const records = await requestResult(db.transaction(sourceStoreName, "readonly").objectStore(sourceStoreName).getAll()) as StoredSource[]; return records.map((record) => record.sourceRef); }
+  finally { db.close(); }
+}
+
+export async function removeFinalOutputs(ids: string[]) {
+  const results: { id: string; removed: boolean; error?: string }[] = [];
+  for (const id of [...new Set(ids)]) {
+    try { await removeFinalOutput(id); results.push({ id, removed: true }); }
+    catch { results.push({ id, removed: false, error: "Final output could not be removed from local storage." }); }
+  }
+  return results;
+}
+
+export async function removeFinalSources(sourceRefs: string[]) {
+  const results: { id: string; removed: boolean; error?: string }[] = [];
+  for (const id of [...new Set(sourceRefs)]) {
+    try { await removeFinalSource(id); results.push({ id, removed: true }); }
+    catch { results.push({ id, removed: false, error: "Retained retry source could not be removed from local storage." }); }
+  }
+  return results;
+}

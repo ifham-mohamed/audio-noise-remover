@@ -205,6 +205,21 @@ export async function removePreviewArtifactPair(ids: string[]) {
   }
 }
 
+export async function listPreviewArtifactIds(): Promise<string[]> {
+  const db = await openDatabase();
+  try { const records = await requestResult(db.transaction(objectStoreName, "readonly").objectStore(objectStoreName).getAll()) as StoredPreviewArtifact[]; return records.map((record) => record.id); }
+  finally { db.close(); }
+}
+
+export async function removePreviewArtifacts(ids: string[]) {
+  const results: { id: string; removed: boolean; error?: string }[] = [];
+  for (const id of [...new Set(ids)]) {
+    try { await removePreviewArtifact(id); results.push({ id, removed: true }); }
+    catch { results.push({ id, removed: false, error: "Preview artifact could not be removed from local storage." }); }
+  }
+  return results;
+}
+
 export async function pruneExpiredPreviewArtifacts(now = Date.now()) {
   const db = await openDatabase();
   try {

@@ -71,6 +71,33 @@ describe("final job contract and coordinator", () => {
     expect(() => incompatible.consume(invalidJob.id, { type: "succeeded", jobId: invalidJob.id, sequence: 2, elapsedMs: 1_000, output })).toThrow(/unsupported/);
   });
 
+  it("marks removed output while preserving history and protects active attempts during cleanup", async () => {
+    const shortMedia: MediaMetadata = { ...media, sizeBytes: 48_044, durationSeconds: 1, audioStream: { ...media.audioStream, channels: 1, sampleRate: 48_000 } };
+    const shortProfile = { ...profile, mediaRef: shortMedia.sourceRef, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" })) };
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const active = await coordinator.create({ media: shortMedia, profile: shortProfile });
+    const completed = await coordinator.create({ media: { ...shortMedia, sourceName: "second.wav", sourceRef: "local:second.wav:20:1" }, profile: { ...shortProfile, mediaRef: "local:second.wav:20:1" } });
+    coordinator.consume(completed.id, { type: "progress", jobId: completed.id, sequence: 1, phase: "Enhancing", stageId: "noise-removal", elapsedMs: 1 });
+    const output = { artifactId: "00000000-0000-4000-8000-000000000099", fileName: "enhanced-output.wav", mimeType: "audio/wav" as const, sizeBytes: 144_044, durationSeconds: 1, mediaValidated: true as const, experimental: true as const };
+    coordinator.consume(completed.id, { type: "succeeded", jobId: completed.id, sequence: 2, elapsedMs: 2, output });
+    const result = coordinator.applyCleanup({ scope: "REMOVE_OUTPUTS", removedOutputIds: [output.artifactId], removedSourceRefs: [], deleteHistoryIds: [] });
+    expect(result.skippedActive).toContain(active.id);
+    expect(coordinator.get(active.id).state).toBe("queued");
+    expect(coordinator.get(completed.id)).toMatchObject({ state: "succeeded", output, outputAvailability: "removed" });
+  });
+
+  it("retains terminal retry ancestry while a linked retry is active", async () => {
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const parent = await coordinator.create({ media, profile });
+    coordinator.consume(parent.id, { type: "progress", jobId: parent.id, sequence: 1, phase: "noise-removal", stageId: "noise-removal", elapsedMs: 5 });
+    coordinator.consume(parent.id, { type: "failed", jobId: parent.id, sequence: 2, elapsedMs: 10, failure: { code: "PROCESSING_FAILED", message: "failed" } });
+    const activeRetry = await coordinator.create({ media, profile, retryOfJobId: parent.id });
+    const result = coordinator.applyCleanup({ scope: "CLEAR_HISTORY", removedOutputIds: [], removedSourceRefs: [], deleteHistoryIds: [parent.id] });
+    expect(result.removedHistory).not.toContain(parent.id);
+    expect(result.skippedAncestry).toContain(parent.id);
+    expect(coordinator.get(parent.id).id).toBe(activeRetry.retryOf);
+  });
+
   it("rejects a profile with no enabled enhancement stages", () => {
     const noOp = { ...profile, stages: profile.stages.map((stage) => ({ ...stage, enabled: false })) };
     expect(() => createFinalJob(media, noOp)).toThrow(/Enable at least one enhancement stage/);

@@ -14,6 +14,7 @@ export const finalJobFailureSchema = z.strictObject({
 export const finalJobStageSchema = z.strictObject({ id: z.string().min(1), label: z.string().min(1) });
 export const finalJobExecutionSnapshotSchema = z.strictObject({ version: z.literal(1), modelId: z.string().min(1), modelVersion: z.string().min(1), runtime: z.literal("onnxruntime-web/wasm"), qualification: z.literal("experimental; not production-qualified") });
 export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: z.literal("audio/wav"), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) });
+export const finalJobOutputAvailabilitySchema = z.enum(["available", "removing", "removed"]);
 export const finalJobSchema = z.strictObject({
   id: finalJobIdSchema,
   retryOf: finalJobIdSchema.optional(),
@@ -32,6 +33,7 @@ export const finalJobSchema = z.strictObject({
   elapsedMs: z.number().int().nonnegative(),
   failure: finalJobFailureSchema.optional(),
   output: finalJobOutputSchema.optional(),
+  outputAvailability: finalJobOutputAvailabilitySchema.optional(),
   recoveryNotice: z.string().min(1).max(240).optional(),
 }).superRefine((job, context) => {
   if (job.profile.mediaRef !== job.media.sourceRef) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "mediaRef"], message: "The profile must reference the selected source." });
@@ -39,7 +41,7 @@ export const finalJobSchema = z.strictObject({
   if (job.profile.output.destination.targetRef === job.media.sourceRef || job.profile.output.destination.targetRef === "source") context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "destination", "targetRef"], message: "The original source cannot be an output target." });
   if (job.state === "failed" && !job.failure) context.addIssue({ code: z.ZodIssueCode.custom, path: ["failure"], message: "A failed final job requires a safe error." });
   if (job.state !== "failed" && job.failure) context.addIssue({ code: z.ZodIssueCode.custom, path: ["failure"], message: "Only failed jobs can carry a failure." });
-  if (job.state === "succeeded" && !job.output) context.addIssue({ code: z.ZodIssueCode.custom, path: ["output"], message: "A successful final job requires a validated output artifact." });
+  if (job.state === "succeeded" && !job.output && job.outputAvailability !== "removed") context.addIssue({ code: z.ZodIssueCode.custom, path: ["output"], message: "A successful final job requires a validated output artifact or a removed-output marker." });
   if (job.state !== "succeeded" && job.output) context.addIssue({ code: z.ZodIssueCode.custom, path: ["output"], message: "Only a successful final job can expose its output artifact." });
   const enabled = job.profile.stages.filter((stage) => stage.enabled).map((stage) => stage.id);
   if (enabled.length !== job.enabledStages.length || enabled.some((id, index) => id !== job.enabledStages[index]?.id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["enabledStages"], message: "Active stages must exactly match the enabled profile stages in order." });
@@ -58,6 +60,12 @@ export const finalJobListEnvelopeSchema = z.object({ data: z.array(finalJobSchem
 export type FinalJob = z.infer<typeof finalJobSchema>;
 export type FinalJobEvent = z.infer<typeof finalJobEventSchema>;
 export type FinalJobOutput = z.infer<typeof finalJobOutputSchema>;
+export const cleanupScopeSchema = z.enum(["REMOVE_PREVIEWS", "REMOVE_OUTPUTS", "CLEAR_HISTORY", "REMOVE_ALL"]);
+export const cleanupRequestSchema = z.strictObject({ scope: cleanupScopeSchema, phase: z.enum(["prepare", "finish", "abort"]).default("finish"), token: z.string().uuid().optional(), plannedPreviewIds: z.array(z.string().uuid()).default([]), plannedOutputIds: z.array(z.string().uuid()).default([]), plannedSourceRefs: z.array(z.string().min(1)).default([]), plannedFinalHistoryIds: z.array(z.string().uuid()).default([]), plannedPreviewHistoryIds: z.array(z.string().uuid()).default([]), removedPreviewIds: z.array(z.string().uuid()).default([]), removedOutputIds: z.array(z.string().uuid()).default([]), removedSourceRefs: z.array(z.string().min(1)).default([]), failedArtifacts: z.array(z.strictObject({ id: z.string().min(1), kind: z.enum(["preview", "output", "retry-source"]) })).default([]) });
+export const cleanupItemSchema = z.strictObject({ id: z.string().min(1), kind: z.enum(["preview", "output", "retry-source", "history", "active-skip"]), outcome: z.enum(["removed", "retained", "failed", "skipped"]), message: z.string().min(1) });
+export const cleanupResultSchema = z.strictObject({ scope: cleanupScopeSchema, items: z.array(cleanupItemSchema), complete: z.boolean() });
+export const cleanupRequestEnvelopeSchema = z.strictObject({ data: cleanupRequestSchema, error: z.null(), requestId: z.string().uuid() });
+export const cleanupResultEnvelopeSchema = z.strictObject({ data: cleanupResultSchema.nullable(), error: z.object({ code: z.string(), message: z.string() }).nullable(), requestId: z.string().uuid() });
 export type FinalJobId = z.infer<typeof finalJobIdSchema>;
 
 export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDurationSeconds: 120 } as const;

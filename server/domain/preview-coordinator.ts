@@ -2,6 +2,7 @@ import { createPreviewJob, createPreviewJobRequestSchema, PreviewJobError, previ
 import { capabilityDetector } from "@/server/adapters/capability-detector";
 import { createPreviewJobFileStore, type PreviewJobStore } from "@/server/adapters/preview-job-file-store";
 import type { CapabilityReport } from "@/shared/contracts/capabilities";
+import { assertLocalCleanupInactive } from "@/server/domain/local-cleanup-gate";
 
 type Dependencies = { detectCapabilities?: () => Promise<CapabilityReport>; now?: () => string; store?: PreviewJobStore };
 const MAX_ACTIVE_PREVIEWS = 4;
@@ -48,6 +49,7 @@ export function createPreviewCoordinator(dependencies: Dependencies = {}) {
     if (active >= MAX_ACTIVE_PREVIEWS) throw new PreviewJobError("RUNTIME_UNAVAILABLE", "Too many local previews are active. Wait for one to finish or cancel it before starting another.");
   }
   async function create(input: unknown): Promise<PreviewJob> {
+    assertLocalCleanupInactive();
     const request = createPreviewJobRequestSchema.parse(input);
     assertActiveCapacity();
     const report = await (dependencies.detectCapabilities ?? (() => capabilityDetector.detect()))();
@@ -104,6 +106,7 @@ export function createPreviewCoordinator(dependencies: Dependencies = {}) {
     });
   }
   async function retry(id: string) {
+    assertLocalCleanupInactive();
     const previous = get(id);
     if (previous.state !== "cancelled" && previous.state !== "failed") throw new PreviewJobError("INVALID_TRANSITION", "Only a failed or cancelled preview can be retried.");
     assertActiveCapacity();
@@ -116,7 +119,20 @@ export function createPreviewCoordinator(dependencies: Dependencies = {}) {
     commit(candidate);
     return next;
   }
+  function list() { return [...jobs.values()].map((job) => structuredClone(job)); }
+  function removeTerminal(ids: string[]) {
+    const candidate = new Map(jobs); const removed: string[] = []; const skipped: string[] = [];
+    const protectedAncestry = new Set<string>();
+    for (const job of candidate.values()) {
+      if (terminalStates.has(job.state)) continue;
+      let ancestor = job.retryOf;
+      while (ancestor && !protectedAncestry.has(ancestor)) { protectedAncestry.add(ancestor); ancestor = candidate.get(ancestor)?.retryOf; }
+    }
+    for (const id of new Set(ids)) { const job = candidate.get(id); if (!job) continue; if (!terminalStates.has(job.state)) { skipped.push(id); continue; } if (protectedAncestry.has(id)) { skipped.push(id); continue; } candidate.delete(id); removed.push(id); }
+    if (removed.length) commit(candidate);
+    return { removed, skipped };
+  }
   reconcileInterruptedJobs();
-  return { create, get, consume, cancel, retry };
+  return { create, get, list, consume, cancel, retry, removeTerminal };
 }
 export const previewCoordinator = createPreviewCoordinator();

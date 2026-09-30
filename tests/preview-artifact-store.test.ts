@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { openPreviewArtifact, pruneExpiredPreviewArtifacts, releasePreviewArtifactUrl, removePreviewArtifact, removePreviewArtifactPair, retainPreviewArtifact, retainPreviewArtifactPair, validatePreviewArtifactBlob } from "@/features/preview/preview-artifact-store";
+import { listPreviewArtifactIds, openPreviewArtifact, pruneExpiredPreviewArtifacts, releasePreviewArtifactUrl, removePreviewArtifact, removePreviewArtifactPair, removePreviewArtifacts, retainPreviewArtifact, retainPreviewArtifactPair, validatePreviewArtifactBlob } from "@/features/preview/preview-artifact-store";
 
 beforeEach(() => vi.stubGlobal("indexedDB", new IDBFactory()));
 afterEach(() => vi.unstubAllGlobals());
@@ -141,6 +141,17 @@ describe("preview artifact validation", () => {
       if (revokeDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor);
       else Reflect.deleteProperty(URL, "revokeObjectURL");
     }
+  });
+
+  it("enumerates and removes every selected preview artifact without touching unselected data", async () => {
+    const firstBlob = makePcmWav(); const secondBlob = makePcmWav();
+    const first = { ...metadata(firstBlob), id: "00000000-0000-4000-8000-000000000011" };
+    const second = { ...metadata(secondBlob), id: "00000000-0000-4000-8000-000000000012" };
+    await retainPreviewArtifact(first, firstBlob); await retainPreviewArtifact(second, secondBlob);
+    expect(await listPreviewArtifactIds()).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(await removePreviewArtifacts([first.id])).toMatchObject([{ id: first.id, removed: true }]);
+    expect(await openPreviewArtifact(first.id)).toBeUndefined();
+    expect(await openPreviewArtifact(second.id)).toBeDefined();
   });
 
   it("validates both members before retaining either side of a comparison", async () => {
