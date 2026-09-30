@@ -62,7 +62,7 @@ context:
 - [x] `features/editor/preview-action.tsx`, `preview-surface.tsx` -- show per-job phase/progress/elapsed, cancel, safe failure actions, and retry accessibly.
 - [x] Preview tests -- contract transitions, regressions, terminal race rejection, retry linkage, artifact cleanup, all seven supported worker input formats, and selected video audio-track mapping are covered by passing unit and real-browser tests. Automated keyboard activation and live-status assertions cover the app flow.
 - [x] Manual failure-path assistive-technology check -- the user reports completing the Edge/Narrator failure-path walkthrough and that tested controls and announcements worked. Browser/reader versions and per-control notes were not recorded.
-- [ ] Manual success/cancellation Narrator check -- automated browser tests verify live-region text, real experimental success, and inference-time cancellation, but no human-observed spoken announcement has been recorded for these new paths.
+- [ ] Manual success/cancellation Narrator check -- automated browser tests verify live-region text, real experimental success, and inference-time cancellation, but no human-observed spoken announcement has been recorded for these new paths. Record OS, Edge, and Narrator versions and the actual words heard for each state below; mark unavailable scenarios “not tested.”
 
 **Acceptance Criteria:**
 - Given a job is running, when its valid events arrive, then only that job shows its phase, available progress, and elapsed time.
@@ -149,3 +149,13 @@ Keep cancellation distinct from cancellation completion and associate retry with
 **Manual checks:**
 - Automated component and browser tests verify keyboard activation, visible focus, status/live-region text, safe actions, forced-colors visibility, reduced motion, and no artifact for cancellation/failure. Automated text checks do not prove spoken screen-reader output.
 - The user reported that the earlier Edge/Narrator failure-path walkthrough worked; versions and per-control notes were not supplied. The newly enabled successful experimental preview and inference-time cancellation need a fresh human-observed Narrator walkthrough. Record what was actually spoken for progress, ready, cancelling, cancelled, and retry; mark any unavailable scenario not tested.
+
+Environment (OS / Edge version / Narrator version): _To be completed by user_
+
+| State | Actual spoken announcement | Result (pass / issue / not tested) | Notes |
+|---|---|---|---|
+| Progress | | Not tested | |
+| Preview ready | | Not tested | |
+| Cancelling | | Not tested | |
+| Cancelled | | Not tested | |
+| Retry action and any announcement | | Not tested | |
