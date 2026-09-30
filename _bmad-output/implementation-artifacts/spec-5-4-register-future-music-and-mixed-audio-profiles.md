@@ -2,7 +2,7 @@
 title: 'Story 5.4 — Register Future Music and Mixed-Audio Profiles'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '811cdf34bc6b19d52d0d86a48ac4420a86ca7352'
