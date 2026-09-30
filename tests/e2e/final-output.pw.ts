@@ -17,7 +17,7 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Process" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
@@ -48,7 +48,7 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   expect(artifacts.outputs[0]?.validated).toBe(true);
   expect(artifacts.outputs[0]?.mimeType).toBe("audio/wav");
   expect(artifacts.outputs[0]?.bytes.length).toBeGreaterThan(44);
-  const audio = page.getByLabel("Listen to the validated experimental final output");
+  const audio = page.getByLabel("Listen to the validated experimental model output");
   await expect(audio).toBeVisible();
   await expect.poll(() => audio.evaluate((element) => (element as HTMLAudioElement).readyState)).toBeGreaterThan(0);
   expect(await audio.evaluate((element) => (element as HTMLAudioElement).currentSrc)).toMatch(/^blob:/);
@@ -109,7 +109,7 @@ test("uses a browser download instead of an unsafe path picker", async ({ page }
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
   const downloadPromise = page.waitForEvent("download");
@@ -118,6 +118,50 @@ test("uses a browser download instead of an unsafe path picker", async ({ page }
   expect(download.suggestedFilename()).toBe("enhanced-output.wav");
   expect(await page.locator("body").getAttribute("data-picker-invoked")).toBeNull();
   await expect(page.getByRole("status").filter({ hasText: "download has started" })).toBeVisible();
+});
+
+test("creates a validated WAV using voice clarity alone without requesting the denoising model", async ({ page }) => {
+  const modelRequests: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/api/preview-model")) modelRequests.push(request.url()); });
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
+  await page.getByRole("switch", { name: "Noise removal enabled" }).click();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("Local voice-clarity output validated")).toBeVisible({ timeout: 100_000 });
+  await expect(page.getByText("This output uses the bounded local voice-clarity EQ; listen to confirm it suits your recording.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Validated WAV · local-only · bounded clarity DSP; listening quality is not certified", { exact: true })).toBeVisible();
+  expect(modelRequests).toEqual([]);
+});
+
+test("processes noise removal before voice clarity in the full-file WAV workflow", async ({ page }) => {
+  const modelRequests: string[] = [];
+  const stageOrder: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/preview-model")) modelRequests.push(request.url());
+    if (request.url().includes("/api/final-jobs/") && request.method() === "POST") {
+      try {
+        const body = request.postDataJSON() as { command?: string; event?: { phase?: string; type?: string } };
+        if (body.command === "event" && body.event?.type === "progress" && body.event.phase === "Applying experimental noise removal" && !stageOrder.includes("noise-removal")) stageOrder.push("noise-removal");
+        if (body.command === "event" && body.event?.type === "progress" && body.event.phase === "Applying voice clarity" && !stageOrder.includes("voice-clarity")) stageOrder.push("voice-clarity");
+      } catch { /* Other local job requests do not carry worker stage progress. */ }
+    }
+  });
+  await page.goto("http://127.0.0.1:3100");
+  await page.locator('input[type="file"]').first().setInputFiles(fixture);
+  await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
+  await page.getByRole("switch", { name: "Voice clarity enabled" }).click();
+  await expect(page.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Process" }).click();
+  await expect(page.getByText("Experimental output validated locally")).toBeVisible({ timeout: 100_000 });
+  await expect(page.getByText("This DPDFNet-based result is experimental and not production-qualified.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Stages: Noise removal · Voice clarity/)).toBeVisible();
+  expect(stageOrder).toEqual(["noise-removal", "voice-clarity"]);
+  expect(modelRequests.length).toBeGreaterThan(0);
 });
 
 test("retries model-unavailable output as a new linked local attempt", async ({ page }) => {
@@ -132,7 +176,7 @@ test("retries model-unavailable output as a new linked local attempt", async ({ 
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Your original remains unchanged, and no successful output is available.", { exact: true })).toBeVisible();
@@ -174,7 +218,7 @@ test("fails closed when the pinned model bytes do not match the verified model",
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const outputCount = await page.evaluate(() => new Promise<number>((resolve, reject) => {
@@ -194,7 +238,7 @@ test("does not create a retry attempt when the original source is missing locall
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
@@ -217,7 +261,7 @@ test("does not create a retry attempt when retained source bytes are unreadable"
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await expect(page.getByText("The pinned experimental model is unavailable or failed verification. Set it up locally, then retry.", { exact: true })).toBeVisible({ timeout: 30_000 });
   const before = await page.evaluate(async () => (await (await fetch("/api/final-jobs")).json()).data.length as number);
@@ -264,7 +308,7 @@ test("cancels an active local worker and retains no final artifact", async ({ pa
   await page.locator('input[type="file"]').first().setInputFiles(fixture);
   await expect(page.getByRole("heading", { name: "Ready to enhance" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
   await page.getByRole("button", { name: "Process" }).click();
   await modelRequested;
   const cancelButton = page.getByRole("button", { name: "Cancel processing" });

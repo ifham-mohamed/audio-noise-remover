@@ -13,5 +13,5 @@ test("keeps speech controls usable and future profiles clearly unavailable", asy
   await expect(page.getByRole("switch")).toHaveCount(4);
   await expect(page.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
 });

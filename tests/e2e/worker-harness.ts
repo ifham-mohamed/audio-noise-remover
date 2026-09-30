@@ -7,6 +7,7 @@ import { openPreviewArtifact, releasePreviewArtifactUrl } from "@/features/previ
 const fileInput = document.querySelector<HTMLInputElement>("#media-file")!;
 const trackInput = document.querySelector<HTMLSelectElement>("#audio-track")!;
 const voiceClarityInput = document.querySelector<HTMLInputElement>("#voice-clarity")!;
+const noiseRemovalInput = document.querySelector<HTMLInputElement>("#noise-removal")!;
 const runButton = document.querySelector<HTMLButtonElement>("#run-preview")!;
 const cancelButton = document.querySelector<HTMLButtonElement>("#cancel-preview")!;
 const result = document.querySelector<HTMLElement>("#result")!;
@@ -49,20 +50,32 @@ runButton.addEventListener("click", () => {
 
   const media = metadataFor(file, Number(trackInput.value));
   const profile = defaultProcessingProfile(media.sourceRef, media.selectedAudioStreamId, media.mediaKind, media.format);
-  profile.stages = profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" || (stage.id === "voice-clarity" && voiceClarityInput.checked) }));
+  profile.stages = profile.stages.map((stage) => ({ ...stage, enabled: (stage.id === "noise-removal" && noiseRemovalInput.checked) || (stage.id === "voice-clarity" && voiceClarityInput.checked) }));
   const job = createPreviewJob(media, profile, 0);
+  if (new URLSearchParams(location.search).has("invalid-clarity")) {
+    const clarity = job.profile.stages.find((stage) => stage.id === "voice-clarity");
+    if (clarity) clarity.parameters.intensity = 101;
+  }
   result.textContent = "Running the real same-origin browser worker, FFmpeg core, and experimental CPU model…";
   result.dataset.reopened = "false";
   result.dataset.modelProgress = "false";
+  result.dataset.stageOrder = "";
   cancelButton.disabled = true;
   runButton.disabled = true;
 
   const session = startPreviewWorker(job, file, async (event: PreviewEvent) => {
-    if (event.type === "progress" && event.phase === "Enhancing speech experimentally") {
+    if (event.type === "progress" && event.phase.includes("experimentally")) {
       result.dataset.modelProgress = "true";
       cancelButton.disabled = false;
     }
-    if (event.type === "progress") result.dataset.lastPhase = event.phase;
+    if (event.type === "progress") {
+      result.dataset.lastPhase = event.phase;
+      if (event.phase === "Applying voice clarity") result.dataset.clarityProgress = "true";
+      const stageOrder = (result.dataset.stageOrder ?? "").split(",").filter(Boolean);
+      if (event.phase === "Removing noise experimentally" && !stageOrder.includes("noise-removal")) stageOrder.push("noise-removal");
+      if (event.phase === "Applying voice clarity" && !stageOrder.includes("voice-clarity")) stageOrder.push("voice-clarity");
+      result.dataset.stageOrder = stageOrder.join(",");
+    }
     result.dataset.type = event.type;
     result.dataset.code = event.type === "failed" ? event.failure.code : "";
     result.textContent = JSON.stringify(event);

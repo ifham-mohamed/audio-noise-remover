@@ -28,6 +28,27 @@ This section supersedes contradictory historical notes below where later impleme
 - **FFmpeg runtime alignment and redistribution review.** **Owner:** project owner decides the architecture/runtime direction; implementation owner updates architecture and runtime artifacts. **Target:** before expanding final-media support or making redistribution claims. The reduced browser core is FFmpeg 5.1.4 while the architecture names a locally provisioned FFmpeg 9.0.2 binary. The bundle serves local preview/extraction, not video re-encoding or general final delivery. Record the decision in a new ADR under `_bmad-output/planning-artifacts/architecture/`, then update the architecture spine, `docs/ffmpeg-runtime.md`, build recipe, bundled sources, and notices as needed.
 - **Direct save path/folder reveal.** **Owner:** implementation owner. **Target:** only after a safe source-identity design exists. Keep browser downloads and filename copy while the app lacks a durable source handle that proves a picked output target is not the original, including after rename. Revisit only with tests preserving the no-overwrite invariant.
 
+### Deferred from the focused local speech usability increment (2026-09-30)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Add validated FLAC, MP3, M4A/AAC, and video final-output paths with explicit per-format settings and preservation rules.
+  evidence: The immediate user goal is local speech noise removal and clarity with a safe WAV result; the current final worker supports only experimental WAV, and compressed/video encoders and preservation validation are not yet verified.
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Qualify a production speech model using rights-cleared independent data, provenance review, and every existing quality gate.
+  evidence: DPDFNet2 is usable only as an experimental local candidate and missed the STOI threshold; the focused usability increment does not waive the established PESQ, clipping, loudness, listening, runtime, memory, or cancellation gates.
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Implement loudness normalization and echo/reverb reduction after defining their effect-specific contracts and quality criteria.
+  evidence: Their measurement, parameter mapping, quality thresholds, and safe edge-case behavior remain unspecified; the user’s immediate goal is noise removal and voice clarity.
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Resolve and document browser FFmpeg 5.1.4 versus native FFmpeg 9.0.2 alignment and redistribution policy.
+  evidence: Existing bounded WAV workflows use the local browser core while the native runtime is separately detected; no upgrade or redistribution is required to deliver the focused WAV workflow.
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Complete human-observed Narrator and real-device accessibility verification across preview, cancellation, history, cleanup, and final output.
+  evidence: Automated checks and the user-reported failure-path walk-through do not document actual spoken output for the remaining states or cover the broader real-device matrix; these checks remain a separate manual verification gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-local-speech-denoise-and-clarity.md`
+  summary: Test whether malformed WAV files with duplicate or conflicting later format chunks can pass the existing bounded header check and bundled FFmpeg decode.
+  evidence: The header inspector returns at the first `fmt ` chunk; no fixture demonstrates that a later conflicting chunk is accepted by the decoder. A malformed-file fixture and browser-worker result will establish whether further hardening is necessary.
+
 The 2026-09-29 entries below record pre-experimental and historical states; use the current dispositions above and the latest story verification records as authority.
 
 <!-- Historical, superseded pre-experimental entries: -->

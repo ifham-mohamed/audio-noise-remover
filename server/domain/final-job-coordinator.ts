@@ -97,13 +97,15 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       if (!(await canExecute()))
         throw new FinalJobError(
           "RUNTIME_UNAVAILABLE",
-          "This experimental build supports only short WAV audio with noise removal enabled and WAV output. Unsupported formats, longer files, and other effects fail safely; your source remains unchanged.",
+          "This experimental build supports only short WAV audio with noise removal and/or voice clarity enabled and WAV output. Unsupported formats, longer files, and other effects fail safely; your source remains unchanged.",
         );
       const job = createFinalJob(request.media, request.profile, {
         id: request.clientAttemptId,
         retryOf: request.retryOfJobId,
         requestId,
-        executionSnapshot: { version: 1, modelId: modelManifest.modelId, modelVersion: modelManifest.version, runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" },
+        executionSnapshot: request.profile.stages.some((stage) => stage.id === "noise-removal" && stage.enabled)
+          ? { version: 1, modelId: modelManifest.modelId, modelVersion: modelManifest.version, runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" }
+          : undefined,
       });
       const candidate = new Map(jobs);
       candidate.set(job.id, job);

@@ -19,9 +19,11 @@ describe("final process action", () => {
   it("keeps Process unavailable for unsupported profiles and explains the experimental limits", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    render(<FinalProcessAction media={media} profile={defaultProcessingProfile(media.sourceRef, "audio-0")} file={new File([new Uint8Array(media.sizeBytes)], "speech.wav", { type: "audio/wav" })} fileAvailable />);
+    const unsupported = defaultProcessingProfile(media.sourceRef, "audio-0");
+    unsupported.stages = unsupported.stages.map((stage) => ({ ...stage, enabled: false }));
+    render(<FinalProcessAction media={media} profile={unsupported} file={new File([new Uint8Array(media.sizeBytes)], "speech.wav", { type: "audio/wav" })} fileAvailable />);
     expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("noise removal only");
+    expect(screen.getByRole("status")).toHaveTextContent("noise removal and/or voice clarity");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
   });

@@ -44,13 +44,14 @@ test.beforeAll(async () => {
   }
 });
 
-async function runWorker(page: import("@playwright/test").Page, filename: string, selectedTrack = 0, expectedType: "succeeded" | "failed" = "succeeded", unsupportedStage = false) {
+async function runWorker(page: import("@playwright/test").Page, filename: string, selectedTrack = 0, expectedType: "succeeded" | "failed" = "succeeded", mode: "denoise" | "clarity" | "combined" | "invalid-clarity" = "denoise") {
   const requestedOrigins = new Set<string>();
   page.on("request", (request) => requestedOrigins.add(new URL(request.url()).origin));
-  await page.goto("/tests/e2e/worker-harness.html");
+  await page.goto(`/tests/e2e/worker-harness.html${mode === "invalid-clarity" ? "?invalid-clarity" : ""}`);
   await page.getByLabel("Local test media").setInputFiles(path.join(fixtures, filename));
   await page.getByLabel("Selected audio track").selectOption(String(selectedTrack));
-  if (unsupportedStage) await page.getByLabel("Enable unsupported voice clarity").check();
+  if (mode === "clarity" || mode === "invalid-clarity") await page.getByLabel("Enable experimental noise removal").uncheck();
+  if (mode !== "denoise") await page.getByLabel("Enable voice clarity").check();
   await page.getByRole("button", { name: "Run experimental local preview" }).click();
   const result = page.getByTestId("worker-result");
   await expect.poll(async () => result.getAttribute("data-type"), { timeout: 60_000 }).toMatch(/^(succeeded|failed)$/);
@@ -103,11 +104,26 @@ test.describe("real browser-worker experimental enhancement", () => {
     expect(rmse).toBeLessThan(1e-5);
   });
 
-  test("an unsupported enabled effect fails clearly without an artifact", async ({ page }) => {
-    const { result } = await runWorker(page, "tone.wav", 0, "failed", true);
-    await expect(result).toHaveAttribute("data-code", "MODEL_UNAVAILABLE");
-    await expect(result).toContainText("voice clarity does not have a local preview adapter");
+  test("voice clarity runs alone in the local worker and produces a validated artifact", async ({ page }) => {
+    const { result, requestedOrigins } = await runWorker(page, "tone.wav", 0, "succeeded", "clarity");
+    await expect(result).toHaveAttribute("data-reopened", "true");
+    await expect(result).toHaveAttribute("data-model-progress", "false");
+    expect([...requestedOrigins]).toEqual(["http://127.0.0.1:4173"]);
+  });
+
+  test("invalid voice-clarity parameters fail before artifact handoff", async ({ page }) => {
+    const { result } = await runWorker(page, "tone.wav", 0, "failed", "invalid-clarity");
+    await expect(result).toHaveAttribute("data-code", "PROCESSING_FAILED");
+    await expect(result).toContainText("voice clarity settings are invalid");
     await expect(result).toHaveAttribute("data-reopened", "false");
+  });
+
+  test("denoising runs before voice clarity in the combined local worker profile", async ({ page }) => {
+    const { result } = await runWorker(page, "tone.wav", 0, "succeeded", "combined");
+    await expect(result).toHaveAttribute("data-reopened", "true");
+    await expect(result).toHaveAttribute("data-model-progress", "true");
+    await expect(result).toHaveAttribute("data-clarity-progress", "true");
+    await expect(result).toHaveAttribute("data-stage-order", "noise-removal,voice-clarity");
   });
 
   test("a missing local model fails without an artifact", async ({ page }) => {

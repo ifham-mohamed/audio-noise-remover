@@ -6,7 +6,7 @@ import type { FinalJobOutput } from "@/shared/contracts/final-job";
 
 type FinalOutput = NonNullable<Awaited<ReturnType<typeof openFinalOutput>>>;
 
-export function FinalOutputReview({ expected }: { expected: FinalJobOutput }) {
+export function FinalOutputReview({ expected, clarityOnly = false }: { expected: FinalJobOutput; clarityOnly?: boolean }) {
   const [output, setOutput] = useState<FinalOutput>();
   const [objectUrl, setObjectUrl] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -46,12 +46,12 @@ export function FinalOutputReview({ expected }: { expected: FinalJobOutput }) {
 
   return <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface)] p-4">
     <h3 className="text-sm font-semibold">Review your final output</h3>
-    <p className="mt-1 text-xs text-[var(--muted-foreground)]">Experimental, validated WAV · local-only · not production-qualified</p>
+    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{clarityOnly ? "Validated WAV · local-only · bounded clarity DSP; listening quality is not certified" : "Experimental model WAV · local-only · model not production-qualified"}</p>
     {loading && <p className="mt-3 text-sm" role="status">Reopening and checking the saved output…</p>}
     {error && <p className="mt-3 text-sm text-amber-200" role="alert">{error} The original file is not used as a substitute.</p>}
     {output && objectUrl && <>
       <p className="mt-3 text-sm">{output.fileName} · {Math.round(output.sizeBytes / 1024)} KB · {output.durationSeconds.toFixed(1)} seconds</p>
-      <audio className="mt-3 w-full" controls preload="metadata" src={objectUrl} aria-label="Listen to the validated experimental final output" />
+      <audio className="mt-3 w-full" controls preload="metadata" src={objectUrl} aria-label={clarityOnly ? "Listen to the validated local voice-clarity output" : "Listen to the validated experimental model output"} />
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={saveOutput} className="inline-flex min-h-11 items-center rounded-md bg-[var(--primary)] px-4 text-sm font-medium text-[var(--primary-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">Download WAV</button>
       </div>

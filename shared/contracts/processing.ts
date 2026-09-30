@@ -42,9 +42,31 @@ export type ProcessingStage = z.infer<typeof processingStageSchema>;
 export type OutputProfile = z.infer<typeof outputProfileSchema>;
 export type ProcessingProfile = z.infer<typeof processingProfileSchema>;
 
+export type EnabledSpeechStagesResult = { success: true; data: ProcessingStage[] } | { success: false; message: string };
+
+/** Validate the small set of stages currently accepted by local audio workers. */
+export function parseEnabledSpeechStages(input: unknown): EnabledSpeechStagesResult {
+  const parsed = processingStageSchema.array().safeParse(input);
+  if (!parsed.success) return { success: false, message: "The selected effect settings are invalid. Review the effects and try again." };
+  if (!parsed.data.length || parsed.data.some((stage) => !stage.enabled)) return { success: false, message: "Enable a supported effect before starting local processing." };
+  if (new Set(parsed.data.map((stage) => stage.id)).size !== parsed.data.length) return { success: false, message: "An effect was listed more than once. Review the selected effects and try again." };
+  const declaration = getProcessingProfileDeclaration("speech");
+  for (const stage of parsed.data) {
+    if (!(stage.id === "noise-removal" || stage.id === "voice-clarity")) return { success: false, message: `${stage.id.replaceAll("-", " ")} does not have a local adapter yet. Turn it off to continue.` };
+    const parameter = declaration?.stages.find((entry) => entry.id === stage.id)?.parameters[0];
+    const intensity = stage.parameters.intensity;
+    if (!parameter || Object.keys(stage.parameters).length !== 1 || !Number.isFinite(intensity) || intensity < parameter.minimum || intensity > parameter.maximum || stage.id === "noise-removal" && intensity === 0) {
+      return { success: false, message: `${stage.id.replaceAll("-", " ")} settings are invalid. Set a supported intensity and try again.` };
+    }
+  }
+  if (!parsed.data.some((stage) => stage.parameters.intensity > 0)) return { success: false, message: parsed.data.length === 1 && parsed.data[0]?.id === "voice-clarity" ? "Set voice clarity above zero before processing." : "Set an enabled effect above zero before processing." };
+  const ordered = [...parsed.data].sort((left, right) => declaration!.stages.findIndex((stage) => stage.id === left.id) - declaration!.stages.findIndex((stage) => stage.id === right.id));
+  return { success: true, data: ordered };
+}
+
 export const defaultProcessingStages: ProcessingStage[] = [
   { id: "noise-removal", enabled: true, parameters: { intensity: 60 } },
-  { id: "voice-clarity", enabled: true, parameters: { intensity: 50 } },
+  { id: "voice-clarity", enabled: false, parameters: { intensity: 50 } },
   { id: "loudness-normalization", enabled: false, parameters: { targetLufs: -16 } },
   { id: "echo-reverb-reduction", enabled: false, parameters: { intensity: 40 } },
 ];

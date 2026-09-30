@@ -54,7 +54,7 @@ test("the app announces a real enhanced preview as experimental", async ({ page 
 
   const voiceClarity = page.getByRole("switch", { name: "Voice clarity enabled" });
   await expect(voiceClarity).toHaveAttribute("aria-checked", "false");
-  await expect(voiceClarity).toBeDisabled();
+  await expect(voiceClarity).toBeEnabled();
   await page.getByRole("button", { name: "Preview", exact: true }).click();
 
   await expect(page.getByRole("status").filter({ hasText: "Preview ready" })).toContainText("experimental model; not production-qualified", { timeout: 60_000 });

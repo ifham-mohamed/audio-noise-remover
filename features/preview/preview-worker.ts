@@ -3,9 +3,10 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { MAX_PREVIEW_INPUT_BYTES } from "@/shared/contracts/preview";
 import { buildPreviewDecodeArgs, isPreviewInputSizeAllowed, isPreviewResourceExhaustion } from "@/features/preview/preview-worker-utils";
-import { processingStageSchema, type ProcessingStage } from "@/shared/contracts/processing";
+import { parseEnabledSpeechStages, type ProcessingStage } from "@/shared/contracts/processing";
 import { DpdfnetModelUnavailable, enhanceWithDpdfnet } from "@/features/preview/dpdfnet-adapter";
 import { decodeFloatWav, packFloatWavForFfmpeg } from "@/features/preview/dpdfnet-signal";
+import { applyVoiceClarity } from "@/features/processing/voice-clarity";
 
 type WorkerRequest =
   | { type: "start"; jobId: string; file: File; range: { startSeconds: number; endSeconds: number }; audioStreamIndex: number; enabledStages: ProcessingStage[] }
@@ -63,19 +64,16 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
     return;
   }
 
-  const parsedStages = processingStageSchema.array().safeParse(request.enabledStages);
-  if (!parsedStages.success || parsedStages.data.some((stage) => !stage.enabled)) {
-    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: "PROCESSING_FAILED", message: "The selected preview effects are invalid. Review the settings and try again.", action: "settings" } });
-    return;
-  }
-  const unsupported = parsedStages.data.find((stage) => stage.id !== "noise-removal");
-  if (unsupported) {
-    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: "MODEL_UNAVAILABLE", message: `${unsupported.id.replaceAll("-", " ")} does not have a local preview adapter yet. Turn it off to try the experimental noise-removal preview.`, action: "effects" } });
+  const parsedStages = parseEnabledSpeechStages(request.enabledStages);
+  if (!parsedStages.success) {
+    const unsupported = parsedStages.message.includes("does not have a local adapter");
+    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: unsupported ? "MODEL_UNAVAILABLE" : "PROCESSING_FAILED", message: `${parsedStages.message} No decoded source audio was published.`, action: unsupported ? "effects" : "settings" } });
     return;
   }
   const noiseRemoval = parsedStages.data.find((stage) => stage.id === "noise-removal");
-  if (!noiseRemoval || noiseRemoval.id !== "noise-removal") {
-    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: "MODEL_UNAVAILABLE", message: "Enable noise removal to make an experimental enhanced preview. No decoded source audio was published.", action: "effects" } });
+  const voiceClarity = parsedStages.data.find((stage) => stage.id === "voice-clarity");
+  if (voiceClarity?.parameters.intensity === 0 && !noiseRemoval) {
+    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: "PROCESSING_FAILED", message: "Set voice clarity above zero or enable noise removal before creating a preview. No decoded source audio was published.", action: "effects" } });
     return;
   }
 
@@ -132,10 +130,18 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
     }
     const samples = decodeFloatWav(decoded);
     if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
-    emit({ type: "progress", phase: "Loading experimental speech model", progress: 0.46, elapsedMs: elapsed() });
-    const enhanced = await enhanceWithDpdfnet(samples, noiseRemoval.parameters.intensity, () => cancelled, (fraction) => {
-      if (!cancelled) emit({ type: "progress", phase: "Enhancing speech experimentally", progress: Math.max(lastProgress, 0.5 + fraction * 0.43), elapsedMs: elapsed() });
-    });
+    let enhanced = samples;
+    if (noiseRemoval) {
+      emit({ type: "progress", phase: "Loading experimental speech model", progress: 0.46, elapsedMs: elapsed() });
+      enhanced = await enhanceWithDpdfnet(enhanced, noiseRemoval.parameters.intensity, () => cancelled, (fraction) => {
+        if (!cancelled) emit({ type: "progress", phase: "Removing noise experimentally", progress: Math.max(lastProgress, 0.5 + fraction * (voiceClarity ? 0.35 : 0.43)), elapsedMs: elapsed() });
+      });
+    }
+    if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
+    if (voiceClarity) {
+      emit({ type: "progress", phase: "Applying voice clarity", progress: 0.88, elapsedMs: elapsed() });
+      enhanced = applyVoiceClarity(enhanced, 48_000, voiceClarity.parameters.intensity);
+    }
     if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
     assertEnhancedAudio(samples, enhanced);
     emit({ type: "progress", phase: "Validating enhanced preview audio", progress: 0.94, elapsedMs: elapsed() });

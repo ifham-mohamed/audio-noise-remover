@@ -9,7 +9,7 @@ import { getStageDeclaration, processingProfileRegistry } from "@/shared/contrac
 
 export const currentEffectCapabilities: Record<EffectId, CapabilityState> = {
   "noise-removal": { status: "limited", cpuSafe: true, message: "Experimental local noise removal only; this model has not passed the production quality gate." },
-  "voice-clarity": { status: "unavailable", cpuSafe: false, message: "Voice clarity is not available until its local adapter and quality checks are complete." },
+  "voice-clarity": { status: "ready", cpuSafe: true, message: "Local presence EQ: 3 kHz, Q 0.8, with gain limited to 0–4 dB. Applied after noise removal when both are enabled." },
   "loudness-normalization": { status: "unavailable", cpuSafe: false, message: "Loudness normalization is not available until its processing and measurement rules are verified." },
   "echo-reverb-reduction": { status: "unavailable", cpuSafe: false, message: "Echo/reverb reduction is not available until its local adapter and quality checks are complete." },
 };

@@ -11,7 +11,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 const media = (sourceName: string, mediaKind: "audio" | "video" = "audio") => ({ sourceName, sourceRef: `local:${sourceName}:20:1`, format: mediaKind === "audio" ? "wav" : "mp4", mediaKind, sizeBytes: 20, durationSeconds: 125, audioStream: { id: "audio-0", present: true, summary: "Ready" } });
 function makeJob(name: string, createdAt: string, state: FinalJob["state"] = "queued", kind: "audio" | "video" = "audio"): FinalJob {
   const input = media(name, kind);
-  const base = createFinalJob(input, defaultProcessingProfile(input.sourceRef, "audio-0", kind, input.format), { createdAt });
+  const profile = defaultProcessingProfile(input.sourceRef, "audio-0", kind, input.format);
+  profile.stages = profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" || stage.id === "voice-clarity" }));
+  const base = createFinalJob(input, profile, { createdAt });
   return finalJobSchema.parse({ ...base, state, updatedAt: createdAt,
     ...(state === "failed" ? { failure: { code: "PROCESSING_FAILED", message: "Local processing failed." } } : {}),
     ...(state === "succeeded" ? { output: { artifactId: "00000000-0000-4000-8000-000000000099", fileName: "result.wav", mimeType: "audio/wav", sizeBytes: 500, durationSeconds: 125, mediaValidated: true, experimental: true } } : {}),

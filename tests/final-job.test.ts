@@ -17,7 +17,7 @@ describe("final job contract and coordinator", () => {
   it("creates a typed queued final attempt and omits disabled profile stages", () => {
     const job = createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000001" });
     expect(job).toMatchObject({ kind: "final", state: "queued", id: "00000000-0000-4000-8000-000000000001" });
-    expect(job.enabledStages.map((stage) => stage.id)).toEqual(["noise-removal", "voice-clarity"]);
+    expect(job.enabledStages.map((stage) => stage.id)).toEqual(["noise-removal"]);
   });
 
   it("keeps legacy records valid and formats diagnostics from the safe allowlist", () => {
@@ -43,6 +43,14 @@ describe("final job contract and coordinator", () => {
     const retry = await coordinator.create({ media, profile, retryOfJobId: parent.id }, "00000000-0000-4000-8000-000000000044");
     expect(retry).toMatchObject({ retryOf: parent.id, requestId: "00000000-0000-4000-8000-000000000044", executionSnapshot: { modelId: "ceva-ip/dpdfnet2_48khz_hr", runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" } });
     expect(coordinator.get(parent.id)).toEqual(failedParent);
+  });
+
+  it("does not record a denoising model for a clarity-only attempt", async () => {
+    const clarityOnly = { ...profile, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "voice-clarity" })) };
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const job = await coordinator.create({ media, profile: clarityOnly });
+    expect(job.enabledStages.map((stage) => stage.id)).toEqual(["voice-clarity"]);
+    expect(job.executionSnapshot).toBeUndefined();
   });
 
   it("rejects an invalid profile and a source output target", () => {
@@ -72,10 +80,18 @@ describe("final job contract and coordinator", () => {
     expect(coordinator.consume(job.id, { type: "succeeded", jobId: job.id, sequence: 2, elapsedMs: 1_000, output })).toMatchObject({ state: "succeeded", output });
 
     const incompatible = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
-    const invalidProfile = { ...shortProfile, stages: profile.stages };
+    const invalidProfile = { ...shortProfile, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" || stage.id === "echo-reverb-reduction" })) };
     const invalidJob = await incompatible.create({ media: shortMedia, profile: invalidProfile });
     incompatible.consume(invalidJob.id, { type: "progress", jobId: invalidJob.id, sequence: 1, phase: "Enhancing", stageId: "noise-removal", progress: 0.9, elapsedMs: 900 });
     expect(() => incompatible.consume(invalidJob.id, { type: "succeeded", jobId: invalidJob.id, sequence: 2, elapsedMs: 1_000, output })).toThrow(/unsupported/);
+  });
+
+  it("accepts zero-gain clarity alongside active denoising but rejects a clarity-only no-op", () => {
+    const shortMedia: MediaMetadata = { ...media, sizeBytes: 48_044, durationSeconds: 1, audioStream: { ...media.audioStream, channels: 1, sampleRate: 48_000 } };
+    const combined = { ...profile, mediaRef: shortMedia.sourceRef, stages: profile.stages.map((stage) => ({ ...stage, enabled: stage.id === "noise-removal" || stage.id === "voice-clarity", parameters: stage.id === "voice-clarity" ? { intensity: 0 } : stage.parameters })) };
+    const clarityOnly = { ...combined, stages: combined.stages.map((stage) => ({ ...stage, enabled: stage.id === "voice-clarity" })) };
+    expect(isSupportedExperimentalFinalProfile(shortMedia, combined)).toBe(true);
+    expect(isSupportedExperimentalFinalProfile(shortMedia, clarityOnly)).toBe(false);
   });
 
   it("marks removed output while preserving history and protects active attempts during cleanup", async () => {

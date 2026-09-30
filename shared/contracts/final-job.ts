@@ -83,7 +83,10 @@ export function isSupportedExperimentalFinalProfile(media: MediaMetadata, profil
     && media.sizeBytes > 0 && media.sizeBytes <= experimentalFinalLimits.maxInputBytes
     && media.durationSeconds > 0 && media.durationSeconds <= experimentalFinalLimits.maxDurationSeconds
     && (media.audioStream.channels ?? 1) <= 2
-    && enabled.length === 1 && enabled[0]?.id === "noise-removal" && enabled[0].parameters.intensity > 0
+    && enabled.length >= 1 && enabled.length <= 2
+    && enabled.every((stage) => ["noise-removal", "voice-clarity"].includes(stage.id))
+    && enabled.every((stage) => stage.id === "voice-clarity" ? stage.parameters.intensity >= 0 : stage.parameters.intensity > 0)
+    && enabled.some((stage) => stage.parameters.intensity > 0)
     && profile.output.mediaKind === "audio" && profile.output.format === "audio-wav" && profile.output.audioCodec === "pcm_s24le"
     && !profile.output.destination.targetRef.startsWith("source")
     && outputName.toLowerCase() !== media.sourceName.trim().toLowerCase()

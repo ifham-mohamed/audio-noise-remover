@@ -44,8 +44,7 @@ async function removeUnpublishedArtifact(jobId: string, artifactId: string) {
 
 export function FinalJobRunner({ job }: { job: FinalJob }) {
   const started = useRef(false);
-  const noiseStage = job.profile.stages.find((stage) => stage.id === "noise-removal" && stage.enabled);
-  const intensity = noiseStage && "intensity" in noiseStage.parameters ? noiseStage.parameters.intensity : 0;
+  const stages = job.profile.stages.filter((stage) => stage.enabled);
   useEffect(() => {
     if (job.state !== "queued" || started.current) return;
     started.current = true;
@@ -135,7 +134,7 @@ export function FinalJobRunner({ job }: { job: FinalJob }) {
           unregister();
           void eventQueue.then(() => postUnexpectedWorkerFailure(job.id, "The local final worker stopped unexpectedly. Temporary output was not retained; your original remains unchanged."));
         };
-        worker.postMessage({ type: "start", jobId: job.id, file, sourceName: job.media.sourceName, sourceSizeBytes: job.media.sizeBytes, sourceDurationSeconds: job.media.durationSeconds, fileName: job.profile.output.destination.targetName, intensity });
+        worker.postMessage({ type: "start", jobId: job.id, file, sourceName: job.media.sourceName, sourceSizeBytes: job.media.sizeBytes, sourceDurationSeconds: job.media.durationSeconds, fileName: job.profile.output.destination.targetName, stages });
       } catch (cause) {
         if (terminal) return;
         terminal = true;
@@ -143,6 +142,6 @@ export function FinalJobRunner({ job }: { job: FinalJob }) {
         await postEvent(job.id, { type: "failed", jobId: job.id, sequence: job.sequence + 1, elapsedMs: job.elapsedMs, failure: { code: "UNSUPPORTED_MEDIA", message: cause instanceof Error ? cause.message : "The source file is unavailable locally.", action: "diagnostics" } }).catch(() => undefined);
       }
     })();
-  }, [job.id, job.media.sourceRef, job.profile.output.destination.targetName, intensity]);
+  }, [job.id, job.media.sourceRef, job.profile.output.destination.targetName, stages]);
   return null;
 }

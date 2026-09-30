@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultOutputProfile, defaultProcessingProfile, defaultProcessingStages, normalizeProcessingProfile, outputProfileSchema, processingProfileSchema } from "@/shared/contracts/processing";
+import { defaultOutputProfile, defaultProcessingProfile, defaultProcessingStages, normalizeProcessingProfile, outputProfileSchema, parseEnabledSpeechStages, processingProfileSchema } from "@/shared/contracts/processing";
 import { getProcessingProfileDeclaration, processingProfileRegistry, processingProfileDeclarationSchema, processingProfileRegistrySchema } from "@/shared/contracts/processing-profiles";
 
 function futureSnapshot(profileId: "music" | "mixed-audio") {
@@ -17,7 +17,7 @@ describe("processing profile contract", () => {
   it("creates explicit speech defaults in canonical order", () => {
     const profile = defaultProcessingProfile("local:interview", "audio-0");
     expect(profile.stages.map((stage) => stage.id)).toEqual(["noise-removal", "voice-clarity", "loudness-normalization", "echo-reverb-reduction"]);
-    expect(profile.stages.filter((stage) => stage.enabled).map((stage) => stage.id)).toEqual(["noise-removal", "voice-clarity"]);
+    expect(profile.stages.filter((stage) => stage.enabled).map((stage) => stage.id)).toEqual(["noise-removal"]);
     expect(profile.selectedAudioStreamId).toBe("audio-0");
   });
 
@@ -31,6 +31,17 @@ describe("processing profile contract", () => {
   it("rejects invalid parameter ranges and undeclared or malformed drafts", () => {
     expect(processingProfileSchema.safeParse({ mediaRef: "local:clip", stages: [{ id: "noise-removal", enabled: true, parameters: { intensity: 140 } }] }).success).toBe(false);
     expect(() => normalizeProcessingProfile({ mediaRef: "local:clip", stages: [{ id: "unknown", enabled: true, parameters: {} }] })).toThrow(/invalid or contains an undeclared stage/i);
+  });
+
+  it("validates worker stages and always orders denoising before clarity", () => {
+    const clarity = { id: "voice-clarity", enabled: true, parameters: { intensity: 0 } };
+    const noise = { id: "noise-removal", enabled: true, parameters: { intensity: 60 } };
+    expect(parseEnabledSpeechStages([clarity, noise])).toMatchObject({ success: true, data: [noise, clarity] });
+    expect(parseEnabledSpeechStages(undefined).success).toBe(false);
+    expect(parseEnabledSpeechStages([{ ...clarity, parameters: { intensity: 101 } }]).success).toBe(false);
+    expect(parseEnabledSpeechStages([{ ...clarity, parameters: { intensity: Number.NaN } }]).success).toBe(false);
+    expect(parseEnabledSpeechStages([clarity])).toMatchObject({ success: false, message: expect.stringMatching(/voice clarity above zero/i) });
+    expect(parseEnabledSpeechStages([{ ...noise, parameters: { intensity: 0 } }]).success).toBe(false);
   });
 
   it("registers typed speech, music, and mixed-audio declarations without granting future execution", () => {
