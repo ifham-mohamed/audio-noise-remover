@@ -16,11 +16,16 @@ describe("final job metadata API", () => {
     const job = createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000001" }); coordinatorMock.create.mockResolvedValue(job);
     const response = await POST(new Request("http://localhost/api/final-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ media, profile }) }));
     const body = await response.json();
-    expect(response.status).toBe(201); expect(body).toMatchObject({ data: { id: job.id, kind: "final", state: "queued" }, error: null, requestId: expect.any(String) }); expect(coordinatorMock.create).toHaveBeenCalledWith({ media, profile });
+    expect(response.status).toBe(201); expect(body).toMatchObject({ data: { id: job.id, kind: "final", state: "queued" }, error: null, requestId: expect.any(String) }); expect(coordinatorMock.create).toHaveBeenCalledWith({ media, profile }, body.requestId);
   });
   it("rejects file bytes and never forwards the payload to the coordinator", async () => {
     const response = await POST(new Request("http://localhost/api/final-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ media, profile, fileBytes: "private media bytes" }) }));
     expect(response.status).toBe(400); expect(coordinatorMock.create).not.toHaveBeenCalled(); expect(JSON.stringify(await response.json())).not.toContain("private media bytes");
+  });
+  it("does not accept a caller supplied request ID", async () => {
+    const response = await POST(new Request("http://localhost/api/final-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ media, profile, requestId: "00000000-0000-4000-8000-000000000099" }) }));
+    expect(response.status).toBe(400);
+    expect(coordinatorMock.create).not.toHaveBeenCalled();
   });
   it("lists persisted jobs in the standard envelope without caching", async () => {
     const job = createFinalJob(media, profile); coordinatorMock.list.mockReturnValue([job]);

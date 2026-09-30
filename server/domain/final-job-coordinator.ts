@@ -11,6 +11,7 @@ import {
   type FinalJob,
   type FinalJobEvent,
 } from "@/shared/contracts/final-job";
+import modelManifest from "@/models/manifest.json";
 
 type Dependencies = {
   store?: FinalJobStore;
@@ -71,7 +72,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
         "Two final processing jobs are already active. Wait for one to finish before starting another.",
       );
   }
-  async function create(input: unknown) {
+  async function create(input: unknown, requestId?: string) {
     assertStoreReady();
     const request = createFinalJobRequestSchema.parse(input);
     const previous = request.retryOfJobId ? get(request.retryOfJobId) : undefined;
@@ -96,7 +97,12 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
           "RUNTIME_UNAVAILABLE",
           "This experimental build supports only short WAV audio with noise removal enabled and WAV output. Unsupported formats, longer files, and other effects fail safely; your source remains unchanged.",
         );
-      const job = createFinalJob(request.media, request.profile, { id: request.clientAttemptId, retryOf: request.retryOfJobId });
+      const job = createFinalJob(request.media, request.profile, {
+        id: request.clientAttemptId,
+        retryOf: request.retryOfJobId,
+        requestId,
+        executionSnapshot: { version: 1, modelId: modelManifest.modelId, modelVersion: modelManifest.version, runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" },
+      });
       const candidate = new Map(jobs);
       candidate.set(job.id, job);
       commit(candidate);

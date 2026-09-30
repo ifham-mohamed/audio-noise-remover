@@ -1,9 +1,11 @@
 import { StrictMode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HistoryView } from "@/features/history/history-view";
 import { createFinalJob, finalJobListEnvelopeSchema, finalJobSchema, type FinalJob } from "@/shared/contracts/final-job";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const media = (sourceName: string, mediaKind: "audio" | "video" = "audio") => ({ sourceName, sourceRef: `local:${sourceName}:20:1`, format: mediaKind === "audio" ? "wav" : "mp4", mediaKind, sizeBytes: 20, durationSeconds: 125, audioStream: { id: "audio-0", present: true, summary: "Ready" } });
 function makeJob(name: string, createdAt: string, state: FinalJob["state"] = "queued", kind: "audio" | "video" = "audio"): FinalJob {
@@ -38,7 +40,7 @@ describe("local history view", () => {
     expect(rows.children[0]).toHaveTextContent("Noise removal, Voice clarity");
     expect(screen.getByRole("link", { name: "View run for newer.wav" })).toHaveAttribute("href", `/processing/${newer.id}`);
     expect(screen.queryByRole("link", { name: "View run for older.wav" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /retry|download|delete/i })).not.toBeInTheDocument();
+    expect(within(rows.children[0] as HTMLElement).queryByRole("button", { name: /retry|download|delete/i })).not.toBeInTheDocument();
   });
 
   it("shows a direct empty state and distinguishes no matching results", async () => {
@@ -119,5 +121,93 @@ describe("local history view", () => {
     fireEvent.change(screen.getAllByRole("combobox")[2]!, { target: { value: "noise-removal" } });
     expect(screen.getByRole("list", { name: "Final processing attempts" }).children).toHaveLength(2);
     expect(screen.queryByText("voice-only.wav")).not.toBeInTheDocument();
+  });
+
+  it("shows attempt details, reports unrecorded snapshots, and renders chronological linked attempts", async () => {
+    const parent = older;
+    const child = finalJobSchema.parse({ ...makeJob("retry.wav", "2026-09-30T11:00:00.000Z", "cancelled"), retryOf: parent.id, failure: undefined, media: parent.media, profile: parent.profile });
+    mockList([child, parent]); render(<HistoryView />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Status" }), { target: { value: "cancelled" } });
+    const details = await screen.findAllByText("Attempt details");
+    fireEvent.click(details[0]!);
+    const row = details[0]!.closest("li") as HTMLElement;
+    expect(within(row).getByText("Execution details: Not recorded.")).toBeInTheDocument();
+    expect(within(row).getByText(/Selected audio stream: audio-0/)).toBeInTheDocument();
+    expect(within(row).getByText("Linked attempts, oldest first")).toBeInTheDocument();
+    expect(within(row).getByText(new RegExp(parent.id))).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: parent.id })).toHaveAttribute("href", `/processing/${parent.id}`);
+    expect(within(row).getByRole("button", { name: "Retry as a new attempt" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Copy attempt diagnostics" })).toBeInTheDocument();
+  });
+
+  it("offers selectable redacted diagnostics when clipboard writing fails", async () => {
+    mockList([older]);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
+    render(<HistoryView />);
+    fireEvent.click((await screen.findAllByText("Attempt details"))[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Copy attempt diagnostics" }));
+    const safeText = await screen.findByLabelText("Selectable safe attempt diagnostics");
+    expect((safeText as HTMLTextAreaElement).value).not.toContain("older.wav");
+    const row = safeText.closest("li") as HTMLElement;
+    expect(within(row).getAllByRole("status").find((status) => status.textContent?.includes("Clipboard unavailable"))).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Retry as a new attempt" })).toBeInTheDocument();
+  });
+
+  it("shows successful output, enabled parameters, and identifiers without offering Retry", async () => {
+    const succeeded = finalJobSchema.parse({
+      ...makeJob("complete.wav", "2026-09-30T12:00:00.000Z", "succeeded"),
+      requestId: "00000000-0000-4000-8000-000000000201",
+      executionSnapshot: { version: 1, modelId: "candidate-model", modelVersion: "v1", runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" },
+    });
+    mockList([succeeded]); render(<HistoryView />);
+    const summary = await screen.findByText("Attempt details");
+    fireEvent.click(summary);
+    const row = summary.closest("li") as HTMLElement;
+    expect(within(row).getByText(/result\.wav · audio\/wav · 500 bytes · 125 seconds · validated/)).toBeInTheDocument();
+    expect(within(row).getByText(/Noise removal: intensity 60/)).toBeInTheDocument();
+    expect(within(row).getByText(/Voice clarity: intensity 50/)).toBeInTheDocument();
+    expect(within(row).getByText(succeeded.id)).toBeInTheDocument();
+    expect(row).toHaveTextContent(`Request ID: ${succeeded.requestId}`);
+    expect(within(row).queryByRole("button", { name: "Retry as a new attempt" })).not.toBeInTheDocument();
+  });
+
+  it("identifies a missing retry parent while keeping the attempt details available", async () => {
+    const orphan = finalJobSchema.parse({
+      ...makeJob("orphan.wav", "2026-09-30T13:00:00.000Z", "cancelled"),
+      retryOf: "00000000-0000-4000-8000-000000000202",
+    });
+    mockList([orphan]); render(<HistoryView />);
+    const summary = await screen.findByText("Attempt details");
+    fireEvent.click(summary);
+    const row = summary.closest("li") as HTMLElement;
+    expect(within(row).getByText(/Previous attempt 00000000-0000-4000-8000-000000000202 is unavailable in local history\./)).toBeInTheDocument();
+    expect(within(row).getByText("Attempt identifiers and terminal reason")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Retry as a new attempt" })).toBeInTheDocument();
+  });
+
+  it("stops cyclic ancestry traversal and sorts branched linked attempts chronologically", async () => {
+    const root = finalJobSchema.parse({ ...newer, retryOf: "00000000-0000-4000-8000-000000000211" });
+    const branchOne = finalJobSchema.parse({ ...makeJob("branch-one.wav", "2026-09-30T10:10:00.000Z"), id: "00000000-0000-4000-8000-000000000211", retryOf: root.id });
+    const branchTwo = finalJobSchema.parse({ ...makeJob("branch-two.wav", "2026-09-30T10:20:00.000Z"), id: "00000000-0000-4000-8000-000000000212", retryOf: root.id });
+    const nested = finalJobSchema.parse({ ...makeJob("nested.wav", "2026-09-30T10:15:00.000Z"), id: "00000000-0000-4000-8000-000000000213", retryOf: branchOne.id });
+    mockList([nested, branchTwo, branchOne, root]); render(<HistoryView />);
+    const rootRow = (await screen.findByRole("heading", { name: "newer.wav" })).closest("li") as HTMLElement;
+    fireEvent.click(within(rootRow).getByText("Attempt details"));
+    const links = within(rootRow).getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/processing/") && link.textContent !== "View run");
+    expect(links.map((link) => link.textContent)).toEqual([root.id, branchOne.id, nested.id, branchTwo.id]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([root.id, branchOne.id, nested.id, branchTwo.id].map((id) => `/processing/${id}`));
+  });
+
+  it("does not label a different available stream as the selected stream", async () => {
+    const mismatched = finalJobSchema.parse({
+      ...newer,
+      profile: { ...newer.profile, selectedAudioStreamId: "audio-selected-but-unavailable" },
+      media: { ...newer.media, audioStreams: [{ id: "audio-0", present: true, summary: "Available stream" }] },
+    });
+    mockList([mismatched]); render(<HistoryView />);
+    const row = (await screen.findByRole("heading", { name: "newer.wav" })).closest("li") as HTMLElement;
+    fireEvent.click(within(row).getByText("Attempt details"));
+    expect(within(row).getByText("Selected audio stream audio-selected-but-unavailable: metadata unavailable.")).toBeInTheDocument();
+    expect(within(row).queryByText(/Selected audio stream: audio-selected-but-unavailable ·/)).not.toBeInTheDocument();
   });
 });

@@ -12,10 +12,13 @@ export const finalJobFailureSchema = z.strictObject({
   action: z.enum(["settings", "diagnostics", "effects"]).optional(),
 });
 export const finalJobStageSchema = z.strictObject({ id: z.string().min(1), label: z.string().min(1) });
+export const finalJobExecutionSnapshotSchema = z.strictObject({ version: z.literal(1), modelId: z.string().min(1), modelVersion: z.string().min(1), runtime: z.literal("onnxruntime-web/wasm"), qualification: z.literal("experimental; not production-qualified") });
 export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: z.literal("audio/wav"), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) });
 export const finalJobSchema = z.strictObject({
   id: finalJobIdSchema,
   retryOf: finalJobIdSchema.optional(),
+  requestId: z.string().uuid().optional(),
+  executionSnapshot: finalJobExecutionSnapshotSchema.optional(),
   kind: z.literal("final"),
   state: finalJobStateSchema,
   sequence: z.number().int().nonnegative(),
@@ -83,7 +86,7 @@ export class FinalJobError extends Error {
   constructor(readonly code: FinalJobErrorCode, message: string) { super(message); this.name = "FinalJobError"; }
 }
 
-export function createFinalJob(mediaInput: unknown, profileInput: unknown, options: { id?: string; retryOf?: string; createdAt?: string } = {}): FinalJob {
+export function createFinalJob(mediaInput: unknown, profileInput: unknown, options: { id?: string; retryOf?: string; createdAt?: string; requestId?: string; executionSnapshot?: z.infer<typeof finalJobExecutionSnapshotSchema> } = {}): FinalJob {
   if (typeof profileInput === "object" && profileInput !== null && "output" in profileInput && typeof profileInput.output === "object" && profileInput.output !== null && "destination" in profileInput.output && typeof profileInput.output.destination === "object" && profileInput.output.destination !== null && "targetRef" in profileInput.output.destination && profileInput.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const request = createFinalJobRequestSchema.safeParse({ media: mediaInput, profile: profileInput });
   if (!request.success) throw new FinalJobError("INVALID_PROFILE", "Review the selected media and output settings, then try again.");
@@ -94,5 +97,18 @@ export function createFinalJob(mediaInput: unknown, profileInput: unknown, optio
   if (!stream.present || profile.mediaRef !== media.sourceRef || profile.selectedAudioStreamId !== selected || profile.output.mediaKind !== media.mediaKind) throw new FinalJobError("INVALID_MEDIA", "The selected media or audio stream is no longer valid.");
   if (profile.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const now = options.createdAt ?? new Date().toISOString();
-  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), retryOf: options.retryOf, kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
+  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), retryOf: options.retryOf, requestId: options.requestId, executionSnapshot: options.executionSnapshot, kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
+}
+
+/** Formats only stable identifiers, states, timings, validated profile parameters, and configured runtime identity. */
+export function formatFinalJobDiagnostic(job: FinalJob): string {
+  const lines = [`Job ID: ${job.id}`, ...(job.requestId ? [`Request ID: ${job.requestId}`] : []), `State: ${job.state}`, `Created: ${job.createdAt}`, `Updated: ${job.updatedAt}`, `Elapsed: ${job.elapsedMs} ms`];
+  if (job.retryOf) lines.push(`Retry of job: ${job.retryOf}`);
+  lines.push(`Enabled stages: ${job.profile.stages.filter((stage) => stage.enabled).map((stage) => `${stage.id} (${Object.entries(stage.parameters).map(([key, value]) => `${key}=${value}`).join(", ")})`).join("; ") || "None"}`);
+  if (job.failure) lines.push(`Failure code: ${job.failure.code}`);
+  else if (job.state === "cancelled") lines.push("Terminal reason: CANCELLED");
+  else if (job.state === "succeeded") lines.push("Terminal reason: COMPLETED");
+  else if (job.recoveryNotice) lines.push("Terminal reason: RECOVERED_AFTER_RESTART");
+  if (job.executionSnapshot) lines.push(`Configured model: ${job.executionSnapshot.modelId} ${job.executionSnapshot.modelVersion}`, `Configured runtime: ${job.executionSnapshot.runtime}`, `Qualification: ${job.executionSnapshot.qualification}`);
+  return lines.join("\n");
 }

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const raw = await request.text();
     if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) return NextResponse.json({ data: null, error: { code: "INVALID_FINAL_JOB_REQUEST", message: "The final processing request is too large. Send media metadata only; file contents stay in the browser." }, requestId }, { status: 413 });
     const metadata = createFinalJobRequestSchema.parse(JSON.parse(raw));
-    const job = await finalJobCoordinator.create(metadata);
+    const job = await finalJobCoordinator.create(metadata, requestId);
     const envelope = finalJobEnvelopeSchema.parse({ data: job, error: null, requestId });
     return NextResponse.json(envelope, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

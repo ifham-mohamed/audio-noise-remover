@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createFinalJobFileStore } from "@/server/adapters/final-job-file-store";
 import { createFinalJobCoordinator } from "@/server/domain/final-job-coordinator";
-import { createFinalJob, finalJobSchema, isSupportedExperimentalFinalProfile } from "@/shared/contracts/final-job";
+import { createFinalJob, finalJobSchema, formatFinalJobDiagnostic, isSupportedExperimentalFinalProfile } from "@/shared/contracts/final-job";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
@@ -17,6 +17,31 @@ describe("final job contract and coordinator", () => {
     const job = createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000001" });
     expect(job).toMatchObject({ kind: "final", state: "queued", id: "00000000-0000-4000-8000-000000000001" });
     expect(job.enabledStages.map((stage) => stage.id)).toEqual(["noise-removal", "voice-clarity"]);
+  });
+
+  it("keeps legacy records valid and formats diagnostics from the safe allowlist", () => {
+    const legacy = createFinalJob(media, profile);
+    expect(finalJobSchema.parse(legacy).executionSnapshot).toBeUndefined();
+    const current = createFinalJob(media, profile, { requestId: "00000000-0000-4000-8000-000000000042", executionSnapshot: { version: 1, modelId: "candidate", modelVersion: "v1", runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" } });
+    const diagnostic = formatFinalJobDiagnostic(current);
+    expect(diagnostic).toContain(current.id);
+    expect(diagnostic).toContain("intensity=60");
+    expect(diagnostic).toContain("candidate");
+    expect(diagnostic).not.toContain(media.sourceName);
+    expect(diagnostic).not.toContain(media.sourceRef);
+    expect(diagnostic).not.toContain(profile.output.destination.targetName);
+  });
+
+  it("associates the coordinator supplied request ID with new and retried attempts", async () => {
+    const coordinator = createFinalJobCoordinator({ store: memoryStore(), canExecuteFinal: () => true });
+    const parent = await coordinator.create({ media, profile }, "00000000-0000-4000-8000-000000000043");
+    expect(parent.requestId).toBe("00000000-0000-4000-8000-000000000043");
+    coordinator.consume(parent.id, { type: "progress", jobId: parent.id, sequence: 1, phase: "noise-removal", stageId: "noise-removal", elapsedMs: 5 });
+    coordinator.consume(parent.id, { type: "failed", jobId: parent.id, sequence: 2, elapsedMs: 10, failure: { code: "PROCESSING_FAILED", message: "failed" } });
+    const failedParent = coordinator.get(parent.id);
+    const retry = await coordinator.create({ media, profile, retryOfJobId: parent.id }, "00000000-0000-4000-8000-000000000044");
+    expect(retry).toMatchObject({ retryOf: parent.id, requestId: "00000000-0000-4000-8000-000000000044", executionSnapshot: { modelId: "ceva-ip/dpdfnet2_48khz_hr", runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" } });
+    expect(coordinator.get(parent.id)).toEqual(failedParent);
   });
 
   it("rejects an invalid profile and a source output target", () => {

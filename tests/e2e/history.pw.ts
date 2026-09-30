@@ -11,6 +11,8 @@ const activeJob = {
     { id: "echo-reverb-reduction", enabled: false, parameters: { intensity: 40 } },
   ], output: { mediaKind: "audio", format: "audio-wav", quality: "high", sampleRate: 48000, audioCodec: "pcm_s24le", destination: { mode: "browser-download", targetName: "enhanced.wav", targetRef: "destination:enhanced.wav", exists: false, overwriteConfirmed: false } } },
   enabledStages: [{ id: "noise-removal", label: "Noise removal" }],
+  requestId: "00000000-0000-4000-8000-000000000102",
+  executionSnapshot: { version: 1, modelId: "ceva-ip/dpdfnet2_48khz_hr", modelVersion: "c7ac7b249ff5e17fa606794dc4f68ed9a544834f", runtime: "onnxruntime-web/wasm", qualification: "experimental; not production-qualified" },
 };
 
 test("navigates to local History, filters and resets, then opens an active run", async ({ page }) => {
@@ -18,6 +20,18 @@ test("navigates to local History, filters and resets, then opens an active run",
   await page.goto("http://127.0.0.1:3100");
   await page.getByRole("link", { name: "History", exact: true }).click();
   await expect(page.getByRole("heading", { name: "history-speech.wav" })).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text: string) => { localStorage.setItem("history-diagnostic", text); return Promise.resolve(); } } }));
+  const attemptDetails = page.getByText("Attempt details");
+  await attemptDetails.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/Configured model ceva-ip\/dpdfnet2_48khz_hr/)).toBeVisible();
+  await expect(page.getByText(activeJob.requestId)).toBeVisible();
+  await page.getByRole("button", { name: "Copy attempt diagnostics" }).click();
+  await expect(page.getByText(/Attempt diagnostics copied/)).toBeVisible();
+  const copied = await page.evaluate(() => localStorage.getItem("history-diagnostic") ?? "");
+  expect(copied).toContain(activeJob.id);
+  expect(copied).not.toContain("history-speech.wav");
+  expect(copied).not.toContain("local:history-speech.wav");
   await page.getByRole("searchbox", { name: "Search history" }).fill("no-such-file");
   await expect(page.getByText("No matching enhancements")).toBeVisible();
   await page.getByRole("button", { name: "Clear filters" }).last().click();
