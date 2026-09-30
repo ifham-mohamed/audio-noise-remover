@@ -2,7 +2,7 @@
 title: 'Story 2.5 — Define and Validate Output Profile'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '89e8009754fb257c57aa60b890147047e11abc83'
@@ -75,6 +75,7 @@ context:
 - Added an accessible output panel with audio/video defaults, source-container capability fallback, browser-download fallback, target naming, explicit overwrite confirmation, source-target protection, and readiness status.
 - Composed output settings only after validated local media, preserving the existing timeline/effect surfaces and creating no file, remote request, or processing job.
 - Verified focused output/processing coverage plus the full test suite, TypeScript, ESLint, and production build successfully.
+- Independent review (2026-09-30) confirmed the normalized profile, overwrite/source-target safety, and browser-download fallback satisfy this story's scope. Manual scenario checks remain follow-up evidence and are not recorded as performed.
 
 ## Design Notes
 

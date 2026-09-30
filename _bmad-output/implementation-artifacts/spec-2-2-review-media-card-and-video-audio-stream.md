@@ -2,7 +2,7 @@
 title: 'Story 2.2 — Review Media Card and Video Audio Stream'
 type: 'feature'
 created: '2026-09-29'
-status: 'done'
+status: 'in-progress'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'd1f099ea6a3eb4bebc25adbfb5b6f228ea8cb784'
@@ -52,9 +52,9 @@ context:
 
 **Execution:**
 - [x] `shared/contracts/media.ts` -- add stream identity, optional channel layout/sample rate, stream collection, and selected stream metadata -- let later processing profiles reference the intended stream safely.
-- [x] `features/intake/media-inspection.ts` -- normalize a usable stream and deterministic first-stream fallback -- keep video validation audio-first and local.
+- [ ] `features/intake/media-inspection.ts` -- populate stream choices from actual local media-probe results and deterministically default to the first usable stream; do not synthesize a stream from browser metadata -- keep video validation audio-first and local.
 - [x] `features/intake/intake-panel.tsx` -- render the review card and accessible stream selector/implications -- make the selected media understandable before editing.
-- [x] `tests/media.test.ts` and `tests/intake.test.tsx` -- cover the matrix and acceptance behaviors -- prevent selection drift and unsafe readiness.
+- [ ] `tests/media.test.ts`, `tests/intake.test.tsx`, and browser integration tests -- verify actual single/multi-stream video discovery, source-order/default selection, selected-stream persistence, and that the selected stream maps to the worker audio ordinal -- prevent selection drift and unsafe readiness.
 
 **Acceptance Criteria:**
 - Given valid audio metadata, when the review card renders, then the user sees type, duration, size, stream summary, and known technical details.
@@ -70,10 +70,14 @@ context:
 - Extended the local inspection result with a deterministic `audio-0` stream and first-stream selection metadata while keeping probing outside the UI component.
 - Added an audio-first video review panel with output implications, technical details, accessible multi-stream selection, and documented fallback copy.
 - Verified 39 tests, TypeScript, ESLint, and production build successfully.
+- Review finding (2026-09-30): the current inspector always supplies one synthetic `audio-0` stream, so the selector has no real discovered streams to present. Existing tests with injected multiple streams verify the UI contract only; they do not prove actual track discovery or that the chosen track reaches processing.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+- `blocking / in-progress` — Independent acceptance review found that real multi-stream discovery is not wired: the inspector fabricates a single stream and the API does not probe the selected file. Keep the story open until actual audio streams are discovered, the selected stream persists into the local processing draft/worker, and a multitrack fixture verifies the end-to-end choice.
+- `false` — A reviewer suggested adding stream persistence and worker mapping to the frozen acceptance criteria. The criteria already require that the selected stream ID persist in the local draft; worker audio-ordinal mapping is recorded as an integration test task, while this story explicitly does not create processing jobs. The existing acceptance wording remains unchanged.
 
 ## Design Notes
 

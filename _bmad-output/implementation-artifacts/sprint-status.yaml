@@ -36,39 +36,39 @@ tracking_system: file-system
 story_location: 
   C:\projects\ai-noice-removal\_bmad-output\implementation-artifacts
 development_status:
-  epic-1: in-progress
-  1-1-local-application-shell-and-navigation: review
-  1-2-local-runtime-readiness-and-diagnostics: review
-  1-3-appearance-playback-output-and-accessibility-settings: review
-  1-4-responsive-and-accessible-shell-behavior: review
+  epic-1: done
+  1-1-local-application-shell-and-navigation: done
+  1-2-local-runtime-readiness-and-diagnostics: done
+  1-3-appearance-playback-output-and-accessibility-settings: done
+  1-4-responsive-and-accessible-shell-behavior: done
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-select-and-inspect-local-media: review
-  2-2-review-media-card-and-video-audio-stream: review
-  2-3-configure-independent-speech-effects: review
-  2-4-use-waveform-timeline-and-transport-controls: review
-  2-5-define-and-validate-output-profile: review
+  2-1-select-and-inspect-local-media: in-progress
+  2-2-review-media-card-and-video-audio-stream: in-progress
+  2-3-configure-independent-speech-effects: done
+  2-4-use-waveform-timeline-and-transport-controls: done
+  2-5-define-and-validate-output-profile: done
   epic-2-retrospective: optional
 
   epic-3: in-progress
-  3-1-create-a-bounded-preview: review
+  3-1-create-a-bounded-preview: done
   3-2-show-preview-progress-cancellation-and-failure: review
-  3-3-compare-before-and-after-preview-audio: review
+  3-3-compare-before-and-after-preview-audio: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
-  4-1-start-and-monitor-final-processing: review
-  4-2-produce-and-validate-an-immutable-output: review
-  4-3-cancel-an-active-processing-job-safely: in-progress
-  4-4-retry-and-recover-interrupted-jobs: in-progress
-  4-5-review-and-retrieve-a-successful-output: in-progress
+  epic-4: done
+  4-1-start-and-monitor-final-processing: done
+  4-2-produce-and-validate-an-immutable-output: done
+  4-3-cancel-an-active-processing-job-safely: done
+  4-4-retry-and-recover-interrupted-jobs: done
+  4-5-review-and-retrieve-a-successful-output: done
   epic-4-retrospective: optional
 
-  epic-5: in-progress
-  5-1-browse-and-filter-local-processing-history: review
-  5-2-inspect-history-details-and-linked-attempts: review
-  5-3-clean-up-generated-files-and-history-safely: review
-  5-4-register-future-music-and-mixed-audio-profiles: review
-  5-5-cross-platform-history-and-cleanup-behavior: review
+  epic-5: done
+  5-1-browse-and-filter-local-processing-history: done
+  5-2-inspect-history-details-and-linked-attempts: done
+  5-3-clean-up-generated-files-and-history-safely: done
+  5-4-register-future-music-and-mixed-audio-profiles: done
+  5-5-cross-platform-history-and-cleanup-behavior: done
   epic-5-retrospective: optional

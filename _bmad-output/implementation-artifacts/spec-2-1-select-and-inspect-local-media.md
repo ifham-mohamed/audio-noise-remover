@@ -2,7 +2,7 @@
 title: 'Story 2.1 — Select and Inspect Local Media'
 type: 'feature'
 created: '2026-09-29'
-status: 'done'
+status: 'in-progress'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '89b5743aa5fd3ed3a67d639c4d770791581dabdd'
@@ -54,9 +54,9 @@ context:
 **Execution:**
 - [x] `shared/contracts/media.ts` -- define supported-format constants, typed metadata, inspection states, and stable errors -- keep browser/server/media boundaries aligned.
 - [x] `features/intake/` -- implement accessible Browse/drop handling, local inspection state, ready/error cards, and Replace/Remove -- make the intake workflow understandable and recoverable.
-- [x] `app/api/media/inspect/route.ts` and `server/` -- expose local typed inspection without cloud access or UI/media-tool coupling -- keep probing behind the architecture boundary.
+- [ ] `features/intake/media-inspection.ts` and a local browser media-probe adapter -- inspect the client-held File locally and return verified media/usable-stream metadata; keep all media bytes out of API requests. `app/api/media/inspect/route.ts` may validate only the derived typed metadata, never claim to probe the file itself.
 - [x] `app/page.tsx` -- compose the intake surface with local trust copy and existing shell layout -- make New enhancement the first usable product loop step.
-- [x] `tests/intake*.test.tsx` and `tests/media*.test.ts` -- cover every matrix row and acceptance behavior -- prevent unsafe processing states and format regressions.
+- [ ] `tests/intake*.test.tsx`, `tests/media*.test.ts`, and browser integration tests -- verify real supported/corrupt/no-audio inputs and prove ready is returned only after a real audio stream is found -- prevent unsafe processing states and format regressions.
 
 **Acceptance Criteria:**
 - Given New enhancement opens, when no media is selected, then the drop zone, Browse action, supported list, and local-processing explanation are visible and keyboard accessible.
@@ -70,12 +70,16 @@ context:
 
 - Added shared Zod media metadata and inspection contracts for the seven supported formats, audio/video kind, stream summary, and stable inspection errors.
 - Implemented local browser metadata inspection with accessible Browse/drop intake, inspecting, ready, error, replace, and remove states; no processing job is created.
-- Added a local typed `/api/media/inspect` envelope boundary for server-side media adapters to consume in later stories without coupling UI to media tooling.
+- Added a local typed `/api/media/inspect` envelope boundary for validating derived metadata without coupling UI to media tooling; it does not receive media bytes or perform file probing.
 - Verified 35 tests, TypeScript, ESLint, and production build successfully.
+- Review finding (2026-09-30): current `inspectLocalMedia` relies on an HTML media element's metadata event and synthesizes an `audio-0` stream; the API validates submitted metadata but does not inspect media bytes. Metadata success alone does not prove a usable audio stream, especially for video. Keep this story open until a local media probe verifies the stream and the result is covered end to end.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+- `blocking / in-progress` — Independent acceptance review found that the current browser metadata probe reports a fabricated audio stream and the API only validates the submitted metadata. This does not satisfy the requirement to reject media without usable audio. Implement a local probe behind the media boundary and test real audio, no-audio video, corrupt input, and multi-stream input before closing Story 2.1.
+- `false` — A reviewer suggested adding no-audio rejection to the acceptance criteria; the frozen criteria already require a stable actionable error for media with “no usable audio stream.” The open work is implementation and real-fixture proof, so the approved acceptance text remains unchanged.
 
 ## Design Notes
 

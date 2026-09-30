@@ -2,7 +2,7 @@
 title: 'Story 4.1 — Start and Monitor Final Processing'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'b6599aeae3e850943fcf56d3d52150f07f347606'
@@ -68,8 +68,8 @@ context:
 
 - Added a branded `FinalJobId`, strict metadata/profile/event/result-safe state contracts, an atomic local JSON metadata store, and a coordinator that owns creation and monotonic progress transitions. The server API rejects oversized requests, extra media-byte fields, invalid output targets, and stale/wrong-job events.
 - Added the Process action, accessible final-job monitor, no-store status endpoints, and shell polling/link to the active job. Media bytes remain in the selected browser file; only validated metadata and progress cross the API.
-- The user approved an experimental local final path, but the UI/API remain fail-closed until the full-file executor and validated output path exist; the current adapter is bounded preview only. Story 4.2 owns that execution path. No final processing success is simulated.
-- Verification: 11 focused Story 4.1 tests pass; `npm run typecheck` and `npm run lint` pass. Browser-level final processing remains blocked on Story 4.2 integration.
+- Story 4.2 now supplies a real, bounded experimental full-file executor and validated output path. The Process control runs only the supported WAV/noise-removal profile, remains visibly experimental, and fails closed for unsupported formats/effects/limits; it does not simulate success.
+- Verification: Story 4.1's 11 focused lifecycle/API/UI tests pass; Story 4.2 integration covers actual browser worker execution and validated output handoff. `npm run typecheck` and `npm run lint` pass. The remaining format/model-quality limits are documented separately and do not block this story's scoped lifecycle behavior.
 
 ## Spec Change Log
 
@@ -77,7 +77,8 @@ context:
 
 ## Review Triage Log
 
-- **medium, defer —** Final worker dispatch and connecting the ready-gated Process control depend on the verified full-file executor and output path assigned to Story 4.2; the current app defaults safely unavailable and does not create a stranded queued job.
+- `resolved / 2026-09-30` — Independent status review found the old “browser-level final processing remains blocked on Story 4.2” note was stale. Story 4.2 is implemented and verified; the bounded supported experimental profile is wired end to end, so this story is closed.
+- `resolved / Story 4.2` — Final worker dispatch and connecting the ready-gated Process control were completed with the bounded experimental executor and validated output path; unsupported profiles remain unavailable by design.
 - **medium, patch —** `app/api/final-jobs/route.ts` classified `RUNTIME_UNAVAILABLE` as a 400 despite it being an unavailable local capability; map it to 503.
 - **medium, patch —** `server/domain/final-job-coordinator.ts` could throw during module initialization when the persisted file was corrupt, before handlers could return safe envelopes; convert store initialization failure to a typed storage error.
 - **medium, patch —** `server/domain/final-job-coordinator.ts` allowed lower progress after an event omitted progress and allowed stage jumps; preserve same-stage progress and require sequential enabled stages.

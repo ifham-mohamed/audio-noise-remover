@@ -2,7 +2,7 @@
 title: 'Story 4.5 — Review and Retrieve a Successful Output'
 type: 'feature'
 created: '2026-09-30'
-status: 'review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'fbfe585'
@@ -54,6 +54,8 @@ Browser download is intentionally used even when the Save File Picker API exists
 - Safety adjustment after independent review: use browser downloads rather than a path-writing picker because the app cannot compare the chosen filesystem entry with its retained original source. This preserves the no-overwrite invariant while delivering the exact validated filename and bytes.
 
 ## Review Triage Log
+
+- `resolved / 2026-09-30` — Independent acceptance review found no unmet story acceptance criterion. The local artifact is reopened and revalidated before playback/download; absent or corrupt data fails closed, and retrieval uses the validated filename and bytes. Story review is closed. Manual browser and cross-OS checks remain separate verification follow-ups.
 
 - `high / patch` — A save picker could overwrite the original if its path was chosen under another name or renamed after intake; retrieval now uses only the browser download flow, which never opens a writable source path.
 - `medium / patch` — A save picker could allow a user-chosen name rather than the validated output filename; the browser download action uses the validated artifact name exactly.
