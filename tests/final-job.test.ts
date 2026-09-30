@@ -6,6 +6,7 @@ import { createFinalJobFileStore } from "@/server/adapters/final-job-file-store"
 import { createFinalJobCoordinator } from "@/server/domain/final-job-coordinator";
 import { createFinalJob, finalJobSchema, formatFinalJobDiagnostic, isSupportedExperimentalFinalProfile } from "@/shared/contracts/final-job";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
+import { getProcessingProfileDeclaration } from "@/shared/contracts/processing-profiles";
 import type { MediaMetadata } from "@/shared/contracts/media";
 
 const media: MediaMetadata = { sourceName: "speech.wav", sourceRef: "local:speech.wav:20:1", format: "wav", mediaKind: "audio", sizeBytes: 20, durationSeconds: 30, audioStream: { id: "audio-0", present: true, summary: "Ready" } };
@@ -47,6 +48,12 @@ describe("final job contract and coordinator", () => {
   it("rejects an invalid profile and a source output target", () => {
     expect(() => createFinalJob(media, { ...profile, mediaRef: "other" })).toThrow();
     expect(() => createFinalJob(media, { ...profile, output: { ...profile.output, destination: { ...profile.output.destination, targetRef: "source" } } })).toThrow(/different output target/);
+  });
+
+  it("rejects registered but unavailable profiles before creating a final attempt", () => {
+    const declaration = getProcessingProfileDeclaration("mixed-audio")!;
+    const futureProfile = { ...profile, profileId: "mixed-audio" as const, stages: declaration.stages.map((stage) => ({ id: stage.id, enabled: true, parameters: Object.fromEntries(stage.parameters.map((parameter) => [parameter.id, parameter.defaultValue])) })) };
+    expect(() => createFinalJob(media, futureProfile)).toThrow(/no qualified local adapter/i);
   });
 
   it("rejects a final result without validated output evidence", () => {

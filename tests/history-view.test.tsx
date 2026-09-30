@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HistoryView } from "@/features/history/history-view";
 import { createFinalJob, finalJobListEnvelopeSchema, finalJobSchema, type FinalJob } from "@/shared/contracts/final-job";
-import { defaultProcessingProfile } from "@/shared/contracts/processing";
+import { defaultProcessingProfile, processingProfileSchema } from "@/shared/contracts/processing";
+import { getProcessingProfileDeclaration } from "@/shared/contracts/processing-profiles";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -18,12 +19,10 @@ function makeJob(name: string, createdAt: string, state: FinalJob["state"] = "qu
 }
 const newer = makeJob("newer.wav", "2026-09-30T10:00:00.000Z", "running");
 const older = makeJob("older.wav", "2026-09-29T10:00:00.000Z", "failed", "video");
-const voiceOnly = finalJobSchema.parse({ ...makeJob("voice-only.wav", "2026-09-28T10:00:00.000Z"), enabledStages: [{ id: "voice-clarity", label: "voice clarity" }], profile: { ...makeJob("voice-only.wav", "2026-09-28T10:00:00.000Z").profile, stages: [
-  { id: "noise-removal", enabled: false, parameters: { intensity: 60 } },
-  { id: "voice-clarity", enabled: true, parameters: { intensity: 50 } },
-  { id: "loudness-normalization", enabled: false, parameters: { targetLufs: -16 } },
-  { id: "echo-reverb-reduction", enabled: false, parameters: { intensity: 40 } },
-] } });
+const futureDeclaration = getProcessingProfileDeclaration("mixed-audio")!;
+const futureAttemptBase = makeJob("mixed-audio.wav", "2026-09-28T10:00:00.000Z", "cancelled");
+const futureProfile = processingProfileSchema.parse({ ...futureAttemptBase.profile, profileId: "mixed-audio", stages: futureDeclaration.stages.map((stage) => ({ id: stage.id, enabled: true, parameters: Object.fromEntries(stage.parameters.map((parameter) => [parameter.id, parameter.defaultValue])) })) });
+const futureAttempt = finalJobSchema.parse({ ...futureAttemptBase, profile: futureProfile, enabledStages: futureProfile.stages.map((stage) => ({ id: stage.id, label: futureDeclaration.stages.find((entry) => entry.id === stage.id)!.label })) });
 function mockList(jobs: FinalJob[]) {
   const fetchMock = vi.fn(async () => ({ ok: true, json: async () => finalJobListEnvelopeSchema.parse({ data: jobs, error: null, requestId: "test" }) }));
   vi.stubGlobal("fetch", fetchMock);
@@ -38,6 +37,7 @@ describe("local history view", () => {
     expect(rows.children[0]).toHaveTextContent("newer.wav");
     expect(rows.children[0]).toHaveTextContent("Audio · WAV · 2:05");
     expect(rows.children[0]).toHaveTextContent("Noise removal, Voice clarity");
+    expect(rows.children[0]).toHaveTextContent("Speech · Noise removal, Voice clarity");
     expect(screen.getByRole("link", { name: "View run for newer.wav" })).toHaveAttribute("href", `/processing/${newer.id}`);
     expect(screen.queryByRole("link", { name: "View run for older.wav" })).not.toBeInTheDocument();
     expect(within(rows.children[0] as HTMLElement).queryByRole("button", { name: /retry|download|delete/i })).not.toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("local history view", () => {
     fireEvent.change(selects[1]!, { target: { value: "audio" } });
     fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-09-30" } });
     fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-09-30" } });
-    fireEvent.change(selects[2]!, { target: { value: "noise-removal" } });
+    fireEvent.change(selects[2]!, { target: { value: "speech" } });
     fireEvent.change(search, { target: { value: "newer" } });
     expect(screen.getByRole("list", { name: "Final processing attempts" }).children).toHaveLength(1);
     for (const chip of ["Remove Status filter", "Remove Media type filter", "Remove From filter", "Remove To filter", "Remove Profile filter", "Remove Search filter"]) expect(screen.getByRole("button", { name: chip })).toBeInTheDocument();
@@ -110,17 +110,17 @@ describe("local history view", () => {
     expect(screen.getByLabelText("To date")).toHaveAttribute("aria-describedby", "date-range-error");
   });
 
-  it("searches visible status labels and excludes profiles without the selected stage", async () => {
+  it("searches visible status labels and filters history by registered profile", async () => {
     const completed = makeJob("completed.wav", "2026-09-27T10:00:00.000Z", "succeeded");
-    mockList([newer, voiceOnly, completed]); render(<HistoryView />);
+    mockList([newer, futureAttempt, completed]); render(<HistoryView />);
     const search = await screen.findByRole("searchbox", { name: "Search history" });
     fireEvent.change(search, { target: { value: "Completed" } });
     expect(screen.getByRole("list", { name: "Final processing attempts" }).children).toHaveLength(1);
     expect(screen.getByText("completed.wav")).toBeInTheDocument();
     fireEvent.change(search, { target: { value: "" } });
-    fireEvent.change(screen.getAllByRole("combobox")[2]!, { target: { value: "noise-removal" } });
+    fireEvent.change(screen.getAllByRole("combobox")[2]!, { target: { value: "speech" } });
     expect(screen.getByRole("list", { name: "Final processing attempts" }).children).toHaveLength(2);
-    expect(screen.queryByText("voice-only.wav")).not.toBeInTheDocument();
+    expect(screen.queryByText("mixed-audio.wav")).not.toBeInTheDocument();
   });
 
   it("shows attempt details, reports unrecorded snapshots, and renders chronological linked attempts", async () => {
@@ -164,8 +164,8 @@ describe("local history view", () => {
     fireEvent.click(summary);
     const row = summary.closest("li") as HTMLElement;
     expect(within(row).getByText(/result\.wav · audio\/wav · 500 bytes · 125 seconds · validated/)).toBeInTheDocument();
-    expect(within(row).getByText(/Noise removal: intensity 60/)).toBeInTheDocument();
-    expect(within(row).getByText(/Voice clarity: intensity 50/)).toBeInTheDocument();
+    expect(within(row).getByText(/Noise removal: Intensity 60%/)).toBeInTheDocument();
+    expect(within(row).getByText(/Voice clarity: Intensity 50%/)).toBeInTheDocument();
     expect(within(row).getByText(succeeded.id)).toBeInTheDocument();
     expect(row).toHaveTextContent(`Request ID: ${succeeded.requestId}`);
     expect(within(row).queryByRole("button", { name: "Retry as a new attempt" })).not.toBeInTheDocument();

@@ -7,7 +7,7 @@ describe("effect inspector", () => {
   it("renders independent defaults and an ordered summary", () => {
     render(<EffectInspector mediaRef="local:interview" />);
     expect(screen.getByRole("heading", { name: "Tune the enhancement stages" })).toBeInTheDocument();
-    expect(screen.getAllByRole("article").map((article) => article.querySelector("h3")?.textContent)).toEqual(["Noise removal", "Voice clarity", "Loudness normalization", "Echo/reverb reduction"]);
+    expect(screen.getAllByRole("article").slice(-4).map((article) => article.querySelector("h3")?.textContent)).toEqual(["Noise removal", "Voice clarity", "Loudness normalization", "Echo/reverb reduction"]);
     expect(screen.getByText(/1\. Noise removal/)).toHaveTextContent("2. Voice clarity");
     expect(screen.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Loudness normalization enabled" })).toHaveAttribute("aria-checked", "false");
@@ -35,5 +35,15 @@ describe("effect inspector", () => {
     expect(screen.getByText("Install the local speech model.")).toBeInTheDocument();
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("shows future profiles and their stages as unavailable without adding runnable controls", () => {
+    render(<EffectInspector mediaRef="local:interview" />);
+    expect(screen.getByRole("heading", { name: "Music" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Mixed audio" })).toBeInTheDocument();
+    expect(screen.getByText("Music denoising")).toBeInTheDocument();
+    expect(screen.getByText("Speech and music separation")).toBeInTheDocument();
+    expect(screen.getAllByRole("switch")).toHaveLength(4);
+    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
   });
 });

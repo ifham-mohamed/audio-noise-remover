@@ -29,10 +29,10 @@ describe("final job monitor", () => {
     render(<FinalJobView id={job.id} />);
     await waitFor(() => expect(screen.getByText("Final processing queued")).toBeInTheDocument());
     await act(async () => { pollCallbacks[0]?.(); await Promise.resolve(); await Promise.resolve(); });
-    expect(await screen.findByText(/Stage: noise removal · Elapsed: 0:08/)).toBeInTheDocument();
+    expect(await screen.findByText(/Stage: Noise removal · Elapsed: 0:08/)).toBeInTheDocument();
     expect(screen.getByText("Overall stage progress: 42%")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Final processing progress" })).toHaveAttribute("aria-valuetext", "42 percent");
-    expect(screen.getByText(/Stage: noise removal · Elapsed: 0:08/)).toBeInTheDocument();
+    expect(screen.getByText(/Stage: Noise removal · Elapsed: 0:08/)).toBeInTheDocument();
   });
 
   it.each([

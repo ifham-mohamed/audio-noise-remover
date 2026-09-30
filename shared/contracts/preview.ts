@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeProcessingProfile, processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
+import { assertProcessingProfileAvailable, getProcessingProfileDeclaration } from "@/shared/contracts/processing-profiles";
 import { mediaMetadataSchema } from "@/shared/contracts/media";
 
 export const MAX_PREVIEW_DURATION_SECONDS = 30;
@@ -21,6 +22,9 @@ export const previewJobSchema = z.object({
 }).superRefine((job, context) => {
   if (job.profile.mediaRef !== job.media.sourceRef) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "mediaRef"], message: "Preview profile must reference the selected source." });
   if (job.profile.output.mediaKind !== job.media.mediaKind) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "mediaKind"], message: "Preview output type must match the selected source." });
+  const declaration = getProcessingProfileDeclaration(job.profile.profileId);
+  const stageOrder = job.profile.stages.map((stage) => declaration?.stages.findIndex((entry) => entry.id === stage.id) ?? -1);
+  if (stageOrder.some((value, index) => value < 0 || (index > 0 && value <= stageOrder[index - 1]!))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "stages"], message: "Preview profile stages must follow their declared order." });
   if (job.range.endSeconds > job.media.durationSeconds) context.addIssue({ code: z.ZodIssueCode.custom, path: ["range", "endSeconds"], message: "Preview range cannot extend beyond the media duration." });
   if (job.state === "succeeded" && !job.artifact) context.addIssue({ code: z.ZodIssueCode.custom, path: ["artifact"], message: "A successful preview requires a validated artifact." });
   if (job.artifact && job.comparisonSourceArtifact) {
@@ -66,6 +70,11 @@ export function createPreviewJob(mediaInput: unknown, profileInput: unknown, cur
   if (typeof profileInput === "object" && profileInput !== null && "output" in profileInput && typeof profileInput.output === "object" && profileInput.output !== null && "destination" in profileInput.output && typeof profileInput.output.destination === "object" && profileInput.output.destination !== null && "targetRef" in profileInput.output.destination && profileInput.output.destination.targetRef === "source") throw new PreviewJobError("SOURCE_TARGET", "The original source cannot be used as a preview or output target.");
   const parsedProfile = processingProfileSchema.safeParse(profileInput);
   if (!parsedProfile.success) throw new PreviewJobError("INVALID_PROFILE", "Review the enhancement and output settings before creating a preview.");
+  const profileDeclaration = getProcessingProfileDeclaration(parsedProfile.data.profileId);
+  if (!profileDeclaration) throw new PreviewJobError("INVALID_PROFILE", "The selected enhancement profile is not registered.");
+  try { assertProcessingProfileAvailable(parsedProfile.data.profileId); }
+  catch (cause) { throw new PreviewJobError("MODEL_UNAVAILABLE", cause instanceof Error ? cause.message : "This profile is unavailable for local processing."); }
+  if (!profileDeclaration.mediaKinds.includes(media.data.mediaKind)) throw new PreviewJobError("INVALID_PROFILE", `The ${profileDeclaration.label} profile does not support ${media.data.mediaKind} media.`);
   const profile = normalizeProcessingProfile(parsedProfile.data);
   if (profile.mediaRef !== media.data.sourceRef || profile.selectedAudioStreamId !== selectedStreamId || profile.output.mediaKind !== media.data.mediaKind) throw new PreviewJobError("INVALID_PROFILE", "The enhancement profile no longer matches the selected media or audio stream. Review the profile and try again.");
   if (profile.output.destination.targetRef === "source") throw new PreviewJobError("SOURCE_TARGET", "The original source cannot be used as a preview or output target.");

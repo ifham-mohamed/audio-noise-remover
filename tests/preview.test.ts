@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultProcessingProfile } from "@/shared/contracts/processing";
+import { getProcessingProfileDeclaration } from "@/shared/contracts/processing-profiles";
 import { createPreviewJob, getPreviewRange, MAX_PREVIEW_DURATION_SECONDS, PreviewJobError, previewJobSchema } from "@/shared/contracts/preview";
 import { createPreviewCoordinator } from "@/server/domain/preview-coordinator";
 import type { PreviewJobStore } from "@/server/adapters/preview-job-file-store";
@@ -67,6 +68,20 @@ describe("bounded preview job contract", () => {
     const unsafe = defaultProcessingProfile(media.sourceRef, "audio-0");
     unsafe.output.destination.targetRef = "source";
     expect(() => createPreviewJob(media, unsafe, 1)).toThrowError(/original source cannot/);
+  });
+
+  it("rejects registered but unavailable profiles before creating a preview attempt", () => {
+    const declaration = getProcessingProfileDeclaration("music")!;
+    const futureProfile = { ...defaultProcessingProfile(media.sourceRef, "audio-0"), profileId: "music" as const, stages: declaration.stages.map((stage) => ({ id: stage.id, enabled: true, parameters: Object.fromEntries(stage.parameters.map((parameter) => [parameter.id, parameter.defaultValue])) })) };
+    expect(() => createPreviewJob(media, futureProfile, 1)).toThrowError(/no qualified local adapter/i);
+  });
+
+  it("keeps unavailable future profiles out of coordinator-owned preview history", async () => {
+    const declaration = getProcessingProfileDeclaration("music")!;
+    const profile = { ...defaultProcessingProfile(media.sourceRef, "audio-0"), profileId: "music" as const, stages: declaration.stages.map((stage) => ({ id: stage.id, enabled: true, parameters: Object.fromEntries(stage.parameters.map((parameter) => [parameter.id, parameter.defaultValue])) })) };
+    const coordinator = createTestPreviewCoordinator({ detectCapabilities: async () => ({ generatedAt: "2026-09-29T00:00:00.000Z", requestId: "local-test", runtime: { nodeVersion: "test", os: "test", architecture: "test" }, items: [] }) });
+    await expect(coordinator.create({ media, profile, currentTimeSeconds: 25 })).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE" });
+    expect(coordinator.list()).toEqual([]);
   });
 
   it("creates a new request identity for a changed profile", () => {

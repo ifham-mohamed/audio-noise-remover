@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { audioStreamSchema, mediaMetadataSchema } from "@/shared/contracts/media";
 import type { MediaMetadata } from "@/shared/contracts/media";
-import { processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
+import { normalizeProcessingProfile, processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
+import { assertProcessingProfileAvailable, getProcessingProfileDeclaration, getStageDeclaration } from "@/shared/contracts/processing-profiles";
 
 const finalMediaMetadataSchema = z.strictObject({ ...mediaMetadataSchema.shape, audioStream: audioStreamSchema.strict(), audioStreams: z.array(audioStreamSchema.strict()).min(1).optional() });
 export const finalJobStateSchema = z.enum(["queued", "running", "cancelling", "cancelled", "succeeded", "failed"]);
@@ -39,6 +40,9 @@ export const finalJobSchema = z.strictObject({
   if (job.profile.mediaRef !== job.media.sourceRef) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "mediaRef"], message: "The profile must reference the selected source." });
   if (job.profile.output.mediaKind !== job.media.mediaKind) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "mediaKind"], message: "The output type must match the selected source." });
   if (job.profile.output.destination.targetRef === job.media.sourceRef || job.profile.output.destination.targetRef === "source") context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "output", "destination", "targetRef"], message: "The original source cannot be an output target." });
+  const declaration = getProcessingProfileDeclaration(job.profile.profileId);
+  const stageOrder = job.profile.stages.map((stage) => declaration?.stages.findIndex((entry) => entry.id === stage.id) ?? -1);
+  if (stageOrder.some((value, index) => value < 0 || (index > 0 && value <= stageOrder[index - 1]!))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["profile", "stages"], message: "Job profile stages must follow their declared order." });
   if (job.state === "failed" && !job.failure) context.addIssue({ code: z.ZodIssueCode.custom, path: ["failure"], message: "A failed final job requires a safe error." });
   if (job.state !== "failed" && job.failure) context.addIssue({ code: z.ZodIssueCode.custom, path: ["failure"], message: "Only failed jobs can carry a failure." });
   if (job.state === "succeeded" && !job.output && job.outputAvailability !== "removed") context.addIssue({ code: z.ZodIssueCode.custom, path: ["output"], message: "A successful final job requires a validated output artifact or a removed-output marker." });
@@ -73,7 +77,8 @@ export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDu
 export function isSupportedExperimentalFinalProfile(media: MediaMetadata, profile: ProcessingProfile) {
   const enabled = profile.stages.filter((stage) => stage.enabled);
   const outputName = profile.output.destination.targetName.trim();
-  return media.mediaKind === "audio"
+  return profile.profileId === "speech"
+    && media.mediaKind === "audio"
     && media.format === "wav"
     && media.sizeBytes > 0 && media.sizeBytes <= experimentalFinalLimits.maxInputBytes
     && media.durationSeconds > 0 && media.durationSeconds <= experimentalFinalLimits.maxDurationSeconds
@@ -98,14 +103,20 @@ export function createFinalJob(mediaInput: unknown, profileInput: unknown, optio
   if (typeof profileInput === "object" && profileInput !== null && "output" in profileInput && typeof profileInput.output === "object" && profileInput.output !== null && "destination" in profileInput.output && typeof profileInput.output.destination === "object" && profileInput.output.destination !== null && "targetRef" in profileInput.output.destination && profileInput.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const request = createFinalJobRequestSchema.safeParse({ media: mediaInput, profile: profileInput });
   if (!request.success) throw new FinalJobError("INVALID_PROFILE", "Review the selected media and output settings, then try again.");
-  const { media, profile } = request.data;
+  const { media } = request.data;
+  const profile = normalizeProcessingProfile(request.data.profile);
+  const profileDeclaration = getProcessingProfileDeclaration(profile.profileId);
+  if (!profileDeclaration) throw new FinalJobError("INVALID_PROFILE", "The selected enhancement profile is not registered.");
+  try { assertProcessingProfileAvailable(profile.profileId); }
+  catch (cause) { throw new FinalJobError("MODEL_UNAVAILABLE", cause instanceof Error ? cause.message : "This profile is unavailable for local processing."); }
+  if (!profileDeclaration.mediaKinds.includes(media.mediaKind)) throw new FinalJobError("INVALID_PROFILE", `The ${profileDeclaration.label} profile does not support ${media.mediaKind} media.`);
   if (!profile.stages.some((stage) => stage.enabled)) throw new FinalJobError("INVALID_PROFILE", "Enable at least one enhancement stage before starting final processing.");
   const selected = media.selectedAudioStreamId ?? media.audioStream.id;
   const stream = media.audioStreams?.find((item) => item.id === selected) ?? media.audioStream;
   if (!stream.present || profile.mediaRef !== media.sourceRef || profile.selectedAudioStreamId !== selected || profile.output.mediaKind !== media.mediaKind) throw new FinalJobError("INVALID_MEDIA", "The selected media or audio stream is no longer valid.");
   if (profile.output.destination.targetRef === "source") throw new FinalJobError("SOURCE_TARGET", "Choose a different output target to keep the original unchanged.");
   const now = options.createdAt ?? new Date().toISOString();
-  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), retryOf: options.retryOf, requestId: options.requestId, executionSnapshot: options.executionSnapshot, kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
+  return finalJobSchema.parse({ id: options.id ?? crypto.randomUUID(), retryOf: options.retryOf, requestId: options.requestId, executionSnapshot: options.executionSnapshot, kind: "final", state: "queued", sequence: 0, createdAt: now, updatedAt: now, media, profile, enabledStages: profile.stages.filter((stage) => stage.enabled).map((stage) => ({ id: stage.id, label: getStageDeclaration(profile.profileId, stage.id)?.label ?? stage.id.replaceAll("-", " ") })), elapsedMs: 0 });
 }
 
 /** Formats only stable identifiers, states, timings, validated profile parameters, and configured runtime identity. */

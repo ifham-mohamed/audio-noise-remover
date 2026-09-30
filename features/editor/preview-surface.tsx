@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PreviewComparison } from "@/features/editor/preview-comparison";
 import type { PreviewJob } from "@/shared/contracts/preview";
+import { getStageDeclaration } from "@/shared/contracts/processing-profiles";
 
 function formatTime(value: number) { const minutes = Math.floor(value / 60); const seconds = Math.floor(value % 60); return `${minutes}:${seconds.toString().padStart(2, "0")}`; }
 function formatElapsed(value: number) { const seconds = Math.floor(value / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
@@ -10,7 +11,17 @@ const stateLabels: Record<PreviewJob["state"], string> = { queued: "Preview queu
 
 export function PreviewSurface({ job, stale = false, cancelling = false, onRetry }: { job: PreviewJob; stale?: boolean; cancelling?: boolean; onRetry?: () => void }) {
   const activeStages = job.profile.stages.filter((stage) => stage.enabled);
-  const stageSummary = activeStages.map((stage) => stage.id === "loudness-normalization" ? `Loudness normalization: ${stage.parameters.targetLufs} LUFS` : `${stage.id.replaceAll("-", " ")}: ${stage.parameters.intensity}%`).join(" · ");
+  const stageSummary = activeStages.map((stage) => {
+    const declaration = getStageDeclaration(job.profile.profileId, stage.id);
+    const parameters = Object.entries(stage.parameters).map(([key, value]) => {
+      const metadata = declaration?.parameters.find((parameter) => parameter.id === key);
+      const formattedValue = metadata?.unit === "LUFS" ? `${value} LUFS` : metadata?.unit.startsWith("%") ? `${value}%` : `${value}${metadata?.unit ? ` ${metadata.unit}` : ""}`;
+      return { label: metadata?.label ?? key, value: formattedValue };
+    });
+    const stageLabel = declaration?.label ?? stage.id;
+    const summary = parameters.length === 1 ? parameters[0]?.value : parameters.map((parameter) => `${parameter.label}: ${parameter.value}`).join(", ");
+    return `${stageLabel}: ${summary || "No parameter values"}`;
+  }).join(" · ");
   const outputSummary = `${job.profile.output.format.replaceAll("-", " ")} · ${job.profile.output.quality} quality · ${job.profile.output.destination.targetName}`;
   const status = cancelling ? "Cancelling… finishing the current step" : job.state === "running" ? `${job.phase ?? "Processing preview"}${job.progress === undefined ? "" : ` · ${Math.round(job.progress * 100)}%`} · ${formatElapsed(job.elapsedMs)} elapsed` : `${stateLabels[job.state]}${job.state === "succeeded" ? " — experimental model; not production-qualified" : ""}${job.state === "failed" && job.failure ? `: ${job.failure.message}` : ""}`;
 
