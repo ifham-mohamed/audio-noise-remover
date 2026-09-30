@@ -65,8 +65,8 @@ development_status:
   4-5-review-and-retrieve-a-successful-output: in-progress
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-browse-and-filter-local-processing-history: backlog
+  epic-5: in-progress
+  5-1-browse-and-filter-local-processing-history: review
   5-2-inspect-history-details-and-linked-attempts: backlog
   5-3-clean-up-generated-files-and-history-safely: backlog
   5-4-register-future-music-and-mixed-audio-profiles: backlog
