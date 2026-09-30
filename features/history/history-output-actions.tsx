@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openFinalOutput } from "@/features/final/final-artifact-store";
 import type { FinalJobOutput } from "@/shared/contracts/final-job";
+import { finalOutputLabel } from "@/shared/contracts/final-output";
 
 type RetainedOutput = NonNullable<Awaited<ReturnType<typeof openFinalOutput>>>;
 
@@ -10,6 +11,7 @@ function matchesRecord(actual: RetainedOutput, expected: FinalJobOutput) {
   return actual.artifactId === expected.artifactId
     && actual.fileName === expected.fileName
     && actual.mimeType === expected.mimeType
+    && (!expected.sha256 || actual.sha256 === expected.sha256)
     && actual.sizeBytes === expected.sizeBytes
     && Math.abs(actual.durationSeconds - expected.durationSeconds) <= 0.001;
 }
@@ -66,7 +68,7 @@ export function HistoryOutputActions({ expected }: { expected: FinalJobOutput })
       downloadRevokeTimer.current = window.setTimeout(() => {
         if (downloadUrl.current === url) releaseDownloadUrl();
       }, 60_000);
-      setNotice("Your browser has been asked to download this WAV. It will handle saving the copy.");
+      setNotice(`Your browser has been asked to download this ${finalOutputLabel(artifact.mimeType)}. It will handle saving the copy.`);
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : "The output could not be saved.");
     }
@@ -88,7 +90,7 @@ export function HistoryOutputActions({ expected }: { expected: FinalJobOutput })
     {loading ? <p role="status">Checking the saved output in this browser…</p> : null}
     {problem ? <p role="status">{problem} No source media is used as a substitute.</p> : null}
     {!loading && output ? <div className="flex flex-wrap gap-2">
-      <button type="button" onClick={() => void save()} disabled={!downloadAvailable} aria-describedby={!downloadAvailable ? `download-help-${expected.artifactId}` : undefined} className="inline-flex min-h-11 items-center rounded-md bg-[var(--primary)] px-4 text-sm font-medium text-[var(--primary-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:opacity-60">Download WAV</button>
+      <button type="button" onClick={() => void save()} disabled={!downloadAvailable} aria-describedby={!downloadAvailable ? `download-help-${expected.artifactId}` : undefined} className="inline-flex min-h-11 items-center rounded-md bg-[var(--primary)] px-4 text-sm font-medium text-[var(--primary-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:opacity-60">Download {finalOutputLabel(expected.mimeType)}</button>
       <button type="button" onClick={() => void copyName()} className="inline-flex min-h-11 items-center rounded-md border border-[var(--border)] px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">Copy output name</button>
       <button type="button" disabled aria-describedby={`path-help-${expected.artifactId}`} className="inline-flex min-h-11 items-center rounded-md border border-[var(--border)] px-4 text-sm font-medium opacity-60">Copy output path</button>
       <button type="button" disabled aria-describedby={`folder-help-${expected.artifactId}`} className="inline-flex min-h-11 items-center rounded-md border border-[var(--border)] px-4 text-sm font-medium opacity-60">Show in folder</button>

@@ -10,7 +10,7 @@ export default defineConfig({
   publicDir: fileURLToPath(new URL("../../public", import.meta.url)),
   resolve: { alias: { "@": repositoryRoot } },
   optimizeDeps: { include: ["onnxruntime-web/wasm"], exclude: ["@ffmpeg/ffmpeg"] },
-  server: { fs: { allow: [repositoryRoot] } },
+  server: { fs: { allow: [repositoryRoot] }, watch: { ignored: ["**/tmp/**", "**/.next/**"] } },
   plugins: [{ name: "local-test-model", configureServer(server) {
     server.middlewares.use("/api/preview-model", async (_request, response) => {
       try {

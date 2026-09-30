@@ -1,3 +1,6 @@
+import { finalOutputMimeSchema, type FinalOutputMime } from "@/shared/contracts/final-output";
+import { encodedOutputDigest, validateEncodedOutput } from "@/features/final/final-output-validation";
+
 const databaseName = "ai-noice-removal-final-artifacts";
 const databaseVersion = 1;
 const sourceStoreName = "sources";
@@ -9,7 +12,8 @@ export const FINAL_OUTPUT_MAX_DURATION_SECONDS = 4 * 60 * 60;
 export type FinalOutputMetadata = {
   artifactId: string;
   fileName: string;
-  mimeType: "audio/wav";
+  mimeType: FinalOutputMime;
+  sha256?: string;
   sizeBytes: number;
   durationSeconds: number;
   validated: true;
@@ -119,6 +123,7 @@ export async function validateFinalWav(blob: Blob, metadata: FinalOutputMetadata
   if (format.blockAlign !== expectedAlign || format.byteRate !== 48_000 * expectedAlign || dataLength <= 0 || dataLength % expectedAlign !== 0) throw new Error("Final WAV PCM layout or data length is invalid.");
   const actualDuration = dataLength / format.byteRate;
   if (Math.abs(actualDuration - metadata.durationSeconds) > Math.max(0.05, 1 / 48_000)) throw new Error("Final WAV duration does not match its audio data.");
+  if (metadata.sha256 && await encodedOutputDigest(blob) !== metadata.sha256) throw new Error("Final WAV no longer matches its validated audio bytes.");
   return { ...metadata, durationSeconds: actualDuration };
 }
 
@@ -153,11 +158,12 @@ export async function openFinalSource(sourceRef: string): Promise<File | undefin
   } finally { db.close(); }
 }
 
-export async function retainFinalOutput(artifactId: string, blob: Blob, metadata: { fileName: string; mimeType: string; durationSeconds: number }): Promise<FinalOutputMetadata> {
+export async function retainFinalOutput(artifactId: string, blob: Blob, metadata: { fileName: string; mimeType: string; durationSeconds: number; sha256?: string }): Promise<FinalOutputMetadata> {
   if (!isBlob(blob)) throw new Error("The final output data is unavailable.");
   assertKey(metadata.fileName, "Output file name");
-  if (metadata.mimeType !== "audio/wav") throw new Error("Final output must be identified as WAV audio.");
-  const artifact = await validateFinalWav(blob, { artifactId, fileName: metadata.fileName, mimeType: metadata.mimeType as "audio/wav", sizeBytes: blob.size, durationSeconds: metadata.durationSeconds, validated: true });
+  const mimeType = finalOutputMimeSchema.parse(metadata.mimeType);
+  const artifactMetadata = { artifactId, fileName: metadata.fileName, mimeType, sha256: metadata.sha256, sizeBytes: blob.size, durationSeconds: metadata.durationSeconds, validated: true as const };
+  const artifact = mimeType === "audio/wav" ? await validateFinalWav(blob, artifactMetadata) : await validateEncodedOutput(blob, artifactMetadata);
   const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => reader.result instanceof ArrayBuffer ? resolve(reader.result) : reject(new Error("The final output could not be read locally."));
@@ -182,7 +188,7 @@ export async function openFinalOutput(artifactId: string): Promise<{ blob: Blob 
   if (!record) return undefined;
   if (!record.bytes || record.bytes.byteLength !== record.sizeBytes) throw new Error("The retained final output data is unavailable.");
   const blob = new Blob([record.bytes], { type: record.mimeType });
-  const metadata = await validateFinalWav(blob, record);
+  const metadata = record.mimeType === "audio/wav" ? await validateFinalWav(blob, record) : await validateEncodedOutput(blob, record);
   return { ...metadata, blob };
 }
 

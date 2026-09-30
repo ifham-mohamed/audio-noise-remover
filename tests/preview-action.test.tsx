@@ -49,6 +49,12 @@ function stubPreviewApi(cancelGate?: Promise<void>) {
 afterEach(() => { cleanup(); workerCancel.mockClear(); workerRelay.current = undefined; vi.unstubAllGlobals(); });
 
 describe("preview action", () => {
+  it("explains new stages and excerpt-only loudness without promising model qualification", () => {
+    render(<PreviewAction file={file} media={media} profile={defaultProcessingProfile(media.sourceRef, "audio-0")} currentTimeSeconds={0} />);
+    expect(screen.getByText(/experimental conservative reflection suppression/)).toHaveTextContent("gated integrated measurement with peak-constrained gain");
+    expect(screen.getByText(/Preview loudness reflects this excerpt/)).toBeInTheDocument();
+    expect(screen.getByText(/has not passed the production quality gate/)).toBeInTheDocument();
+  });
   it("creates and labels a bounded preview request for the active profile", async () => {
     const request = stubPreviewApi();
     const user = userEvent.setup();

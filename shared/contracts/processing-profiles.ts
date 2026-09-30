@@ -52,8 +52,8 @@ const intensity = (label: string, description: string, defaultValue: number, uni
 const speechStageCopy = {
   "noise-removal": { label: "Noise removal", description: "Reduce steady background noise while protecting speech detail.", adapterId: "speech.dpdfnet.experimental", metrics: ["noise-reduction", "speech-quality"], unit: "% intensity" },
   "voice-clarity": { label: "Voice clarity", description: "A subtle presence EQ applied after noise removal when both are enabled, centered at 3 kHz; intensity maps from 0–100 to 0–4 dB.", adapterId: "speech.voice-clarity.presence-eq-v1", metrics: ["speech-clarity", "peak-level"], unit: "% intensity" },
-  "loudness-normalization": { label: "Loudness normalization", description: "Bring overall speech level toward a consistent listening target.", adapterId: "audio.loudness-normalization", metrics: ["integrated-loudness"], unit: "LUFS" },
-  "echo-reverb-reduction": { label: "Echo/reverb reduction", description: "Soften room reflections that make speech sound distant or blurred.", adapterId: "speech.echo-reverb", metrics: ["reverberation-reduction"], unit: "% reduction" },
+  "loudness-normalization": { label: "Loudness normalization", description: "Bring overall speech level toward a consistent listening target.", adapterId: "audio.loudness-normalization", metrics: ["achievedLufs", "estimatedTruePeakDbtp", "headroomLimited", "targetUnmet"], unit: "LUFS" },
+  "echo-reverb-reduction": { label: "Echo/reverb reduction", description: "Experimentally soften weak late room reflections; this is not general echo cancellation.", adapterId: "speech.echo-reverb", metrics: ["meanSpectralGain", "headroomScale"], unit: "% reduction" },
 } as const;
 
 const speechDefaults = [
@@ -68,7 +68,7 @@ const speech = {
   stages: speechDefaults.map((stage) => {
     const copy = speechStageCopy[stage.id];
     const { unit: parameterUnit, ...stageCopy } = copy;
-    return { id: stage.id, ...stageCopy, parameters: stage.id === "loudness-normalization" ? [{ id: "targetLufs", label: "Target loudness", description: "Integrated loudness target.", type: "number" as const, minimum: -24, maximum: -9, defaultValue: stage.targetLufs, step: 1, unit: "LUFS" }] : [intensity("Intensity", copy.description, stage.intensity, parameterUnit)], requiredCapabilities: [copy.adapterId], };
+    return { id: stage.id, ...stageCopy, parameters: stage.id === "loudness-normalization" ? [{ id: "targetLufs", label: "Target loudness", description: "Integrated loudness target; peak protection can limit achievable gain.", type: "number" as const, minimum: -24, maximum: -12, defaultValue: stage.targetLufs, step: 1, unit: "LUFS" }] : [intensity("Intensity", copy.description, stage.intensity, parameterUnit)], requiredCapabilities: [copy.adapterId], };
   }),
 } as const;
 

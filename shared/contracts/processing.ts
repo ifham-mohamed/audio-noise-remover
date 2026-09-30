@@ -52,14 +52,14 @@ export function parseEnabledSpeechStages(input: unknown): EnabledSpeechStagesRes
   if (new Set(parsed.data.map((stage) => stage.id)).size !== parsed.data.length) return { success: false, message: "An effect was listed more than once. Review the selected effects and try again." };
   const declaration = getProcessingProfileDeclaration("speech");
   for (const stage of parsed.data) {
-    if (!(stage.id === "noise-removal" || stage.id === "voice-clarity")) return { success: false, message: `${stage.id.replaceAll("-", " ")} does not have a local adapter yet. Turn it off to continue.` };
+    if (!effectIds.includes(stage.id as EffectId)) return { success: false, message: `${stage.id.replaceAll("-", " ")} does not have a local adapter yet. Turn it off to continue.` };
     const parameter = declaration?.stages.find((entry) => entry.id === stage.id)?.parameters[0];
-    const intensity = stage.parameters.intensity;
-    if (!parameter || Object.keys(stage.parameters).length !== 1 || !Number.isFinite(intensity) || intensity < parameter.minimum || intensity > parameter.maximum || stage.id === "noise-removal" && intensity === 0) {
+    const value = parameter ? stage.parameters[parameter.id] : undefined;
+    if (!parameter || Object.keys(stage.parameters).length !== 1 || typeof value !== "number" || !Number.isFinite(value) || value < parameter.minimum || value > parameter.maximum || stage.id === "noise-removal" && value === 0) {
       return { success: false, message: `${stage.id.replaceAll("-", " ")} settings are invalid. Set a supported intensity and try again.` };
     }
   }
-  if (!parsed.data.some((stage) => stage.parameters.intensity > 0)) return { success: false, message: parsed.data.length === 1 && parsed.data[0]?.id === "voice-clarity" ? "Set voice clarity above zero before processing." : "Set an enabled effect above zero before processing." };
+  if (!parsed.data.some((stage) => stage.id === "loudness-normalization" || stage.parameters.intensity > 0)) return { success: false, message: parsed.data.length === 1 && parsed.data[0]?.id === "voice-clarity" ? "Set voice clarity above zero before processing." : "Set an enabled effect above zero before processing." };
   const ordered = [...parsed.data].sort((left, right) => declaration!.stages.findIndex((stage) => stage.id === left.id) - declaration!.stages.findIndex((stage) => stage.id === right.id));
   return { success: true, data: ordered };
 }
@@ -71,11 +71,12 @@ export const defaultProcessingStages: ProcessingStage[] = [
   { id: "echo-reverb-reduction", enabled: false, parameters: { intensity: 40 } },
 ];
 
-export function defaultOutputProfile(mediaRef: string, mediaKind: "audio" | "video" = "audio", sourceFormat?: string, targetName = "enhanced-output.wav"): OutputProfile {
+export function defaultOutputProfile(mediaRef: string, mediaKind: "audio" | "video" = "audio", sourceFormat?: string, targetName?: string): OutputProfile {
   const videoSource = mediaKind === "video" && sourceFormat !== "mp4";
-  return outputProfileSchema.parse({ mediaKind, format: mediaKind === "audio" ? "audio-wav" : videoSource ? "source-video" : "mp4", quality: "high", sampleRate: 48000, audioCodec: mediaKind === "audio" ? "pcm_s24le" : "aac", audioBitrateKbps: mediaKind === "video" ? 192 : undefined, videoCodec: mediaKind === "video" ? (videoSource ? "source" : "h264") : undefined, destination: { mode: "ask", targetName, targetRef: `destination:${targetName}`, exists: false, overwriteConfirmed: false } });
+  const name = targetName ?? `enhanced-output.${mediaKind === "video" ? sourceFormat ?? "mp4" : "wav"}`;
+  return outputProfileSchema.parse({ mediaKind, format: mediaKind === "audio" ? "audio-wav" : videoSource ? "source-video" : "mp4", quality: "high", sampleRate: 48000, audioCodec: mediaKind === "audio" ? "pcm_s24le" : "aac", audioBitrateKbps: mediaKind === "video" ? 192 : undefined, videoCodec: mediaKind === "video" ? "source" : undefined, destination: { mode: "ask", targetName: name, targetRef: `destination:${name}`, exists: false, overwriteConfirmed: false } });
 }
-export function defaultProcessingProfile(mediaRef: string, selectedAudioStreamId?: string, mediaKind: "audio" | "video" = "audio", sourceFormat?: string, targetName?: string): ProcessingProfile { return processingProfileSchema.parse({ profileId: "speech", mediaRef, selectedAudioStreamId, stages: defaultProcessingStages, output: defaultOutputProfile(mediaRef, mediaKind, sourceFormat, targetName ?? (mediaKind === "video" ? "enhanced-output.mp4" : "enhanced-output.wav")) }); }
+export function defaultProcessingProfile(mediaRef: string, selectedAudioStreamId?: string, mediaKind: "audio" | "video" = "audio", sourceFormat?: string, targetName?: string): ProcessingProfile { return processingProfileSchema.parse({ profileId: "speech", mediaRef, selectedAudioStreamId, stages: defaultProcessingStages, output: defaultOutputProfile(mediaRef, mediaKind, sourceFormat, targetName) }); }
 
 export function normalizeProcessingProfile(value: unknown): ProcessingProfile {
   const parsed = processingProfileSchema.safeParse(value);

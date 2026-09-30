@@ -22,6 +22,19 @@ afterEach(() => {
 });
 
 describe("history output actions", () => {
+  it.each([
+    ["audio/flac", "FLAC", "flac"], ["audio/mpeg", "MP3", "mp3"], ["audio/mp4", "M4A", "m4a"],
+    ["video/mp4", "MP4", "mp4"], ["video/quicktime", "MOV", "mov"], ["video/x-matroska", "MKV", "mkv"],
+  ] as const)("downloads retained %s with its validated name", async (mimeType, label, extension) => {
+    const expected = { ...output, mimeType, fileName: `result.${extension}` };
+    openOutput.mockResolvedValue({ ...expected, blob: new Blob([new Uint8Array(48)], { type: mimeType }) });
+    let savedName = "";
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { savedName = this.download; });
+    render(<HistoryOutputActions expected={expected} />);
+    fireEvent.click(await screen.findByRole("button", { name: `Download ${label}` }));
+    await waitFor(() => expect(savedName).toBe(`result.${extension}`));
+    expect(screen.getByRole("status")).toHaveTextContent(`download this ${label}`);
+  });
   it("validates retained bytes and offers browser save while explaining unavailable folder/path actions", async () => {
     openOutput.mockResolvedValue(retained);
     render(<HistoryOutputActions expected={output} />);

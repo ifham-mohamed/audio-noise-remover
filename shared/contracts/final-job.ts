@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { audioStreamSchema, mediaMetadataSchema } from "@/shared/contracts/media";
 import type { MediaMetadata } from "@/shared/contracts/media";
-import { normalizeProcessingProfile, processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
+import { normalizeProcessingProfile, parseEnabledSpeechStages, processingProfileSchema, type ProcessingProfile } from "@/shared/contracts/processing";
+import { finalOutputDigestSchema, finalOutputMimeSchema, getFinalEncodingPlan, isSafeFinalOutputName, speechStageMetricsSchema } from "@/shared/contracts/final-output";
 import { assertProcessingProfileAvailable, getProcessingProfileDeclaration, getStageDeclaration } from "@/shared/contracts/processing-profiles";
 
 const finalMediaMetadataSchema = z.strictObject({ ...mediaMetadataSchema.shape, audioStream: audioStreamSchema.strict(), audioStreams: z.array(audioStreamSchema.strict()).min(1).optional() });
@@ -14,7 +15,9 @@ export const finalJobFailureSchema = z.strictObject({
 });
 export const finalJobStageSchema = z.strictObject({ id: z.string().min(1), label: z.string().min(1) });
 export const finalJobExecutionSnapshotSchema = z.strictObject({ version: z.literal(1), modelId: z.string().min(1), modelVersion: z.string().min(1), runtime: z.literal("onnxruntime-web/wasm"), qualification: z.literal("experimental; not production-qualified") });
-export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: z.literal("audio/wav"), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) });
+export const finalJobOutputSchema = z.strictObject({ artifactId: z.string().uuid(), fileName: z.string().min(1), mimeType: finalOutputMimeSchema, sha256: finalOutputDigestSchema.optional(), metrics: speechStageMetricsSchema.optional(), sizeBytes: z.number().int().positive(), durationSeconds: z.number().finite().positive(), mediaValidated: z.literal(true), experimental: z.literal(true) }).superRefine((output, context) => {
+  if (output.mimeType !== "audio/wav" && !output.sha256) context.addIssue({ code: z.ZodIssueCode.custom, path: ["sha256"], message: "Encoded media requires an integrity digest from the validating worker." });
+});
 export const finalJobOutputAvailabilitySchema = z.enum(["available", "removing", "removed"]);
 export const finalJobSchema = z.strictObject({
   id: finalJobIdSchema,
@@ -76,24 +79,17 @@ export const experimentalFinalLimits = { maxInputBytes: 128 * 1024 * 1024, maxDu
 
 export function isSupportedExperimentalFinalProfile(media: MediaMetadata, profile: ProcessingProfile) {
   const enabled = profile.stages.filter((stage) => stage.enabled);
+  const plan = getFinalEncodingPlan(profile.output, media.format);
   const outputName = profile.output.destination.targetName.trim();
   return profile.profileId === "speech"
-    && media.mediaKind === "audio"
-    && media.format === "wav"
+    && !!plan && plan.video === (media.mediaKind === "video")
     && media.sizeBytes > 0 && media.sizeBytes <= experimentalFinalLimits.maxInputBytes
     && media.durationSeconds > 0 && media.durationSeconds <= experimentalFinalLimits.maxDurationSeconds
     && (media.audioStream.channels ?? 1) <= 2
-    && enabled.length >= 1 && enabled.length <= 2
-    && enabled.every((stage) => ["noise-removal", "voice-clarity"].includes(stage.id))
-    && enabled.every((stage) => stage.id === "voice-clarity" ? stage.parameters.intensity >= 0 : stage.parameters.intensity > 0)
-    && enabled.some((stage) => stage.parameters.intensity > 0)
-    && profile.output.mediaKind === "audio" && profile.output.format === "audio-wav" && profile.output.audioCodec === "pcm_s24le"
+    && parseEnabledSpeechStages(enabled).success
     && !profile.output.destination.targetRef.startsWith("source")
     && outputName.toLowerCase() !== media.sourceName.trim().toLowerCase()
-    && outputName.length <= 180 && outputName === profile.output.destination.targetName.trim()
-    && !/[\\/<>:"|?*\u0000-\u001f]/.test(outputName)
-    && !/[. ]$/.test(outputName)
-    && outputName.toLowerCase().endsWith(".wav")
+    && isSafeFinalOutputName(profile.output.destination.targetName, plan.extension)
     && ["ask", "browser-download"].includes(profile.output.destination.mode);
 }
 

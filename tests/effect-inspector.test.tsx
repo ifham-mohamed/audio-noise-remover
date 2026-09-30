@@ -12,9 +12,27 @@ describe("effect inspector", () => {
     expect(screen.getByRole("switch", { name: "Noise removal enabled" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Voice clarity enabled" })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByRole("switch", { name: "Echo/reverb reduction enabled" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Echo/reverb reduction enabled" })).toBeEnabled();
+    expect(screen.getByRole("switch", { name: "Echo/reverb reduction enabled" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("switch", { name: "Loudness normalization enabled" })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Loudness normalization enabled" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText(/has not passed the production quality gate/)).toBeInTheDocument();
+  });
+
+  it("enables loudness and conservative reverb independently and resets them to off", async () => {
+    const user = userEvent.setup();
+    render(<EffectInspector mediaRef="local:interview" />);
+    expect(screen.getByText(/gated integrated loudness measurement and peak-constrained gain/)).toBeInTheDocument();
+    expect(screen.getByText(/Experimental conservative reflection suppression/)).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Loudness normalization enabled" }));
+    await user.click(screen.getByRole("switch", { name: "Echo/reverb reduction enabled" }));
+    expect(screen.getByText(/1\. Noise removal/)).toHaveTextContent("Loudness normalization");
+    expect(screen.getByText(/1\. Noise removal/)).toHaveTextContent("Echo/reverb reduction");
+    expect(screen.getByRole("switch", { name: "Voice clarity enabled" })).toHaveAttribute("aria-checked", "false");
+    await user.click(screen.getAllByRole("button", { name: "Reset" })[2]);
+    await user.click(screen.getAllByRole("button", { name: "Reset" })[3]);
+    expect(screen.getByRole("switch", { name: "Loudness normalization enabled" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("switch", { name: "Echo/reverb reduction enabled" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("keeps voice clarity available when resetting its independent intensity", async () => {

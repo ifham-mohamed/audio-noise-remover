@@ -11,7 +11,7 @@ export function isPreviewResourceExhaustion(cause: unknown) {
   return typeof error.message === "string" && /memory|allocation|out of memory|buffer.{0,20}(large|alloc)|quota exceeded/i.test(error.message);
 }
 
-export function getPreviewAudioStreamIndex(job: PreviewJob) {
+export function getPreviewAudioStreamIndex(job: Pick<PreviewJob, "profile" | "media">) {
   const selectedId = job.profile.selectedAudioStreamId ?? job.media.selectedAudioStreamId ?? job.media.audioStream.id;
   const selected = job.media.audioStreams?.find((stream) => stream.id === selectedId)
     ?? (job.media.audioStream.id === selectedId ? job.media.audioStream : undefined);

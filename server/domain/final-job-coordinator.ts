@@ -12,6 +12,7 @@ import {
   type FinalJobEvent,
 } from "@/shared/contracts/final-job";
 import modelManifest from "@/models/manifest.json";
+import { getFinalEncodingPlan, isSafeFinalOutputName } from "@/shared/contracts/final-output";
 import { assertLocalCleanupInactive } from "@/server/domain/local-cleanup-gate";
 
 type Dependencies = {
@@ -97,7 +98,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       if (!(await canExecute()))
         throw new FinalJobError(
           "RUNTIME_UNAVAILABLE",
-          "This experimental build supports only short WAV audio with noise removal and/or voice clarity enabled and WAV output. Unsupported formats, longer files, and other effects fail safely; your source remains unchanged.",
+          "Review the enabled speech effects, selected audio stream, output format, file size, and five-minute local processing limit.",
         );
       const job = createFinalJob(request.media, request.profile, {
         id: request.clientAttemptId,
@@ -214,13 +215,15 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
     const stamp = now();
     if (event.type === "succeeded") {
       const outputName = event.output.fileName;
+      const plan = getFinalEncodingPlan(current.profile.output, current.media.format);
       if (
         current.state !== "running" ||
         !isSupportedExperimentalFinalProfile(current.media, current.profile) ||
         outputName !== current.profile.output.destination.targetName ||
         outputName.toLowerCase() === current.media.sourceName.toLowerCase() ||
-        /[\\/<>:"|?*\u0000-\u001f]/.test(outputName) ||
-        !outputName.toLowerCase().endsWith(".wav") ||
+        !plan || !isSafeFinalOutputName(outputName, plan.extension) ||
+        event.output.mimeType !== plan.mimeType ||
+        current.phase !== current.enabledStages.at(-1)?.id ||
         Math.abs(event.output.durationSeconds - current.media.durationSeconds) > 0.05
       )
         throw new FinalJobError(
@@ -251,6 +254,7 @@ export function createFinalJobCoordinator(dependencies: Dependencies = {}) {
       const stageChanged = stageIndex !== previousStageIndex;
       if (
         stageIndex < 0 ||
+        stageIndex < previousStageIndex ||
         stageIndex > previousStageIndex + 1 ||
         current.state === "cancelling"
       )

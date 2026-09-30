@@ -3,10 +3,12 @@
 import { useEffect, useRef } from "react";
 import { openFinalSource, removeFinalOutput, retainFinalOutput } from "@/features/final/final-artifact-store";
 import { finalJobEnvelopeSchema, finalJobEventSchema, type FinalJob } from "@/shared/contracts/final-job";
+import type { FinalOutputMime, SpeechStageMetrics } from "@/shared/contracts/final-output";
+import { getPreviewAudioStreamIndex } from "@/features/preview/preview-worker-utils";
 
 type WorkerProgress = { type: "progress"; jobId: string; sequence: number; elapsedMs: number; phase: string; stageId: string; progress: number };
 type WorkerFailure = { type: "failed"; jobId: string; sequence: number; elapsedMs: number; failure: { code: "MODEL_UNAVAILABLE" | "PROCESSING_FAILED" | "RESOURCE_EXHAUSTED"; message: string; action?: "settings" | "diagnostics" | "effects" } };
-type WorkerSuccess = { type: "succeeded"; jobId: string; sequence: number; elapsedMs: number; artifact: { artifactId: string; blob: Blob; fileName: string; mimeType: "audio/wav"; sizeBytes: number; durationSeconds: number; mediaValidated: true; experimental: true } };
+type WorkerSuccess = { type: "succeeded"; jobId: string; sequence: number; elapsedMs: number; metrics?: SpeechStageMetrics; artifact: { artifactId: string; blob: Blob; fileName: string; mimeType: FinalOutputMime; sha256?: string; sizeBytes: number; durationSeconds: number; mediaValidated: true; experimental: true } };
 type WorkerMessage = WorkerProgress | WorkerFailure | WorkerSuccess;
 type ActiveFinalWorker = { cancel(): Promise<void> };
 const activeFinalWorkers = new Map<string, ActiveFinalWorker>();
@@ -101,18 +103,21 @@ export function FinalJobRunner({ job }: { job: FinalJob }) {
         }
         if (data.type === "failed") {
           terminal = true;
+          worker?.terminate();
           unregister();
           await postEvent(job.id, finalJobEventSchema.parse(data));
           return;
         }
-        const stored = await retainFinalOutput(data.artifact.artifactId, data.artifact.blob, { fileName: data.artifact.fileName, mimeType: data.artifact.mimeType, durationSeconds: data.artifact.durationSeconds });
+        const stored = await retainFinalOutput(data.artifact.artifactId, data.artifact.blob, { fileName: data.artifact.fileName, mimeType: data.artifact.mimeType, sha256: data.artifact.sha256, durationSeconds: data.artifact.durationSeconds });
         retainedArtifactId = stored.artifactId;
-        await postEvent(job.id, finalJobEventSchema.parse({ type: "succeeded", jobId: job.id, sequence: data.sequence, elapsedMs: data.elapsedMs, output: { artifactId: stored.artifactId, fileName: stored.fileName, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, durationSeconds: stored.durationSeconds, mediaValidated: true, experimental: true } }));
+        await postEvent(job.id, finalJobEventSchema.parse({ type: "succeeded", jobId: job.id, sequence: data.sequence, elapsedMs: data.elapsedMs, output: { artifactId: stored.artifactId, fileName: stored.fileName, mimeType: stored.mimeType, sha256: stored.sha256, metrics: data.metrics, sizeBytes: stored.sizeBytes, durationSeconds: stored.durationSeconds, mediaValidated: true, experimental: true } }));
         terminal = true;
+        worker?.terminate();
         unregister();
       }).catch(async () => {
         if (cancellationRequested) return;
         terminal = true;
+        worker?.terminate();
         unregister();
         if (retainedArtifactId) await removeUnpublishedArtifact(job.id, retainedArtifactId);
         await postUnexpectedWorkerFailure(job.id, "The local enhanced artifact could not be validated or retained. No successful output is available; your original remains unchanged.");
@@ -121,7 +126,7 @@ export function FinalJobRunner({ job }: { job: FinalJob }) {
     void (async () => {
       try {
         const file = await openFinalSource(job.id);
-        if (!file) throw new Error("The original local WAV is no longer available in this browser. Select it again before retrying.");
+        if (!file) throw new Error("The original local media is no longer available in this browser. Select it again before retrying.");
         worker = new Worker(new URL("../final/final-worker.ts", import.meta.url), { type: "module", name: `final-${job.id}` });
         activeFinalWorkers.set(job.id, { cancel });
         worker.onmessage = (message: MessageEvent<WorkerMessage>) => {
@@ -131,10 +136,11 @@ export function FinalJobRunner({ job }: { job: FinalJob }) {
         worker.onerror = () => {
           if (terminal || cancellationRequested) return;
           terminal = true;
+          worker?.terminate();
           unregister();
           void eventQueue.then(() => postUnexpectedWorkerFailure(job.id, "The local final worker stopped unexpectedly. Temporary output was not retained; your original remains unchanged."));
         };
-        worker.postMessage({ type: "start", jobId: job.id, file, sourceName: job.media.sourceName, sourceSizeBytes: job.media.sizeBytes, sourceDurationSeconds: job.media.durationSeconds, fileName: job.profile.output.destination.targetName, stages });
+        worker.postMessage({ type: "start", jobId: job.id, file, sourceName: job.media.sourceName, sourceSizeBytes: job.media.sizeBytes, sourceDurationSeconds: job.media.durationSeconds, audioStreamIndex: getPreviewAudioStreamIndex(job), output: job.profile.output, fileName: job.profile.output.destination.targetName, stages });
       } catch (cause) {
         if (terminal) return;
         terminal = true;

@@ -16,6 +16,21 @@ function supportedProfile() { const profile = defaultProcessingProfile(media.sou
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); push.mockClear(); });
 
 describe("final process action", () => {
+  it("blocks a profile for a different selected audio stream", () => {
+    const profile = supportedProfile();
+    profile.selectedAudioStreamId = "audio-1";
+    render(<FinalProcessAction media={media} profile={profile} file={new File([new Uint8Array(44)], "speech.wav")} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("valid output name and audio stream");
+  });
+
+  it("disables Process when actual local bytes exceed the experimental limit", () => {
+    const file = new File([new Uint8Array(44)], "speech.wav");
+    Object.defineProperty(file, "size", { value: 128 * 1024 * 1024 + 1 });
+    render(<FinalProcessAction media={media} profile={supportedProfile()} file={file} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("128 MB experimental limit");
+  });
   it("enables full local processing for a 4:57 WAV and explains the five-minute boundary", () => {
     const recording: MediaMetadata = { ...media, sizeBytes: 27_200_000, durationSeconds: 297 };
     const profile = supportedProfile();
@@ -34,9 +49,25 @@ describe("final process action", () => {
     unsupported.stages = unsupported.stages.map((stage) => ({ ...stage, enabled: false }));
     render(<FinalProcessAction media={media} profile={unsupported} file={new File([new Uint8Array(media.sizeBytes)], "speech.wav", { type: "audio/wav" })} fileAvailable />);
     expect(screen.getByRole("button", { name: "Process" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("noise removal and/or voice clarity");
+    expect(screen.getByRole("status")).toHaveTextContent("enable an effect above zero or loudness normalization");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it.each(["mp3", "m4a", "flac", "mp4", "mov", "mkv"] as const)("accepts supported %s inputs without a WAV filename restriction", (format) => {
+    const mediaKind = ["mp4", "mov", "mkv"].includes(format) ? "video" as const : "audio" as const;
+    const input = { ...media, format, mediaKind, sourceName: `speech.${format}` };
+    const profile = defaultProcessingProfile(input.sourceRef, "audio-0", mediaKind, format, `enhanced-output.${mediaKind === "video" ? format : "wav"}`);
+    if (mediaKind === "video") profile.output.videoCodec = "source";
+    render(<FinalProcessAction media={input} profile={profile} file={new File([new Uint8Array(44)], input.sourceName)} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeEnabled();
+  });
+
+  it.each(["loudness-normalization", "echo-reverb-reduction"])("accepts %s as the only enabled stage", (id) => {
+    const profile = supportedProfile();
+    profile.stages = profile.stages.map((stage) => ({ ...stage, enabled: stage.id === id }));
+    render(<FinalProcessAction media={media} profile={profile} file={new File([new Uint8Array(44)], "speech.wav")} fileAvailable />);
+    expect(screen.getByRole("button", { name: "Process" })).toBeEnabled();
   });
   it("saves the original locally and starts the supported experimental WAV path with keyboard activation", async () => {
     const jobId = "00000000-0000-4000-8000-000000000001";

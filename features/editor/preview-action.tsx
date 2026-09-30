@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PreviewSurface } from "@/features/editor/preview-surface";
 import { startPreviewWorker, type PreviewWorkerSession } from "@/features/preview/preview-worker-client";
@@ -95,11 +94,11 @@ export function PreviewAction({ media, profile, currentTimeSeconds, file, onPrev
 
   return <section className="mt-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-raised)] p-5" aria-labelledby="preview-action-title">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--secondary)]">Experimental local preview</p><h2 id="preview-action-title" className="mt-1 text-xl font-semibold">Try a short preview</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">Runs up to 30 seconds around the playhead. Noise removal uses an experimental model that has not passed the production quality gate. Voice clarity is an independent bounded 3 kHz presence EQ; when both are enabled, it runs after noise removal. Loudness normalization and echo reduction remain unavailable.</p></div>
+      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--secondary)]">Experimental local preview</p><h2 id="preview-action-title" className="mt-1 text-xl font-semibold">Try a short preview</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">Runs up to 30 seconds around the playhead. Noise removal uses an experimental model that has not passed the production quality gate. Voice clarity is an independent bounded 3 kHz presence EQ; when both are enabled, it runs after noise removal. Echo/reverb reduction is experimental conservative reflection suppression. Loudness normalization uses gated integrated measurement with peak-constrained gain; the target may not be reached. Only enabled stages run in the declared order.</p></div>
       <div className="flex gap-2"><Button type="button" aria-describedby="preview-experimental-note" onClick={() => void createPreview()} disabled={preparing || cancelling || !!job && ["queued", "running", "cancelling"].includes(job.state) || invalidProfile || !file || !Number.isFinite(media.durationSeconds) || media.durationSeconds <= 0} className="min-h-11">{preparing ? "Preparing preview…" : "Preview"}</Button>
         {job && ["queued", "running"].includes(job.state) && <Button type="button" variant="outline" onClick={() => void cancelPreview()} disabled={cancelling}>{cancelling ? "Cancelling…" : "Cancel preview"}</Button>}</div>
     </div>
-    <p id="preview-experimental-note" className="mt-2 text-xs text-[var(--muted-foreground)]">Experimental noise-removal preview. Your local source remains unchanged.</p>
+    <p id="preview-experimental-note" className="mt-2 text-xs text-[var(--muted-foreground)]">Experimental local speech preview. Your local source remains unchanged. Preview loudness reflects this excerpt, not the full final output.</p>
     {preparing && <p className="mt-3 text-sm text-[var(--muted-foreground)]" role="status">Preparing local preview. Media bytes stay in the browser worker.</p>}
     {error && <p className="mt-4 text-sm text-rose-200" role="alert">{error}</p>}
     {job && <PreviewSurface job={job} stale={stale} cancelling={cancelling} onRetry={() => void retryPreview()} />}

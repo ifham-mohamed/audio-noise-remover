@@ -86,10 +86,13 @@ test("creates a validated experimental full-file WAV artifact locally", async ({
   expect(downloadedBytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
   expect([...downloadedBytes]).toEqual(artifacts.outputs[0]!.bytes);
   const processingUrl = page.url();
+  const attemptId = processingUrl.split("/").at(-1)!;
   await page.getByRole("link", { name: "History", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "tone.wav" })).toBeVisible();
-  await page.getByText("Attempt details").click();
-  const historyActions = page.getByRole("group", { name: "Local output actions" });
+  await expect(page).toHaveURL(/\/history$/);
+  const attempt = page.locator(`#history-${attemptId}`);
+  await expect(attempt.getByRole("heading", { name: "tone.wav" })).toBeVisible();
+  await attempt.getByText("Attempt details").click();
+  const historyActions = attempt.getByRole("group", { name: "Local output actions" });
   await expect(historyActions.getByRole("button", { name: "Download WAV" })).toBeEnabled();
   const historyDownloadPromise = page.waitForEvent("download");
   await historyActions.getByRole("button", { name: "Download WAV" }).click();

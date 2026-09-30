@@ -4,9 +4,9 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { MAX_PREVIEW_INPUT_BYTES } from "@/shared/contracts/preview";
 import { buildPreviewDecodeArgs, isPreviewInputSizeAllowed, isPreviewResourceExhaustion } from "@/features/preview/preview-worker-utils";
 import { parseEnabledSpeechStages, type ProcessingStage } from "@/shared/contracts/processing";
-import { DpdfnetModelUnavailable, enhanceWithDpdfnet } from "@/features/preview/dpdfnet-adapter";
+import { DpdfnetModelUnavailable } from "@/features/preview/dpdfnet-adapter";
 import { decodeFloatWav, packFloatWavForFfmpeg } from "@/features/preview/dpdfnet-signal";
-import { applyVoiceClarity } from "@/features/processing/voice-clarity";
+import { runSpeechPipeline, speechStagePhases } from "@/features/processing/speech-pipeline";
 
 type WorkerRequest =
   | { type: "start"; jobId: string; file: File; range: { startSeconds: number; endSeconds: number }; audioStreamIndex: number; enabledStages: ProcessingStage[] }
@@ -14,6 +14,7 @@ type WorkerRequest =
 
 let cancelled = false;
 let activeFfmpeg: FFmpeg | undefined;
+let activeAbort: AbortController | undefined;
 class InvalidEnhancedPreview extends Error {}
 
 function assertEnhancedAudio(source: Float32Array, output: Float32Array) {
@@ -34,11 +35,13 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
   const request = message.data;
   if (request.type === "cancel") {
     cancelled = true;
+    activeAbort?.abort();
     activeFfmpeg?.terminate();
     return;
   }
 
   cancelled = false;
+  activeAbort = new AbortController();
   const startedAt = performance.now();
   let sequence = 0;
   const emit = (event: Record<string, unknown>) => self.postMessage({ ...event, jobId: request.jobId, sequence: ++sequence });
@@ -68,12 +71,6 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
   if (!parsedStages.success) {
     const unsupported = parsedStages.message.includes("does not have a local adapter");
     emit({ type: "failed", elapsedMs: elapsed(), failure: { code: unsupported ? "MODEL_UNAVAILABLE" : "PROCESSING_FAILED", message: `${parsedStages.message} No decoded source audio was published.`, action: unsupported ? "effects" : "settings" } });
-    return;
-  }
-  const noiseRemoval = parsedStages.data.find((stage) => stage.id === "noise-removal");
-  const voiceClarity = parsedStages.data.find((stage) => stage.id === "voice-clarity");
-  if (voiceClarity?.parameters.intensity === 0 && !noiseRemoval) {
-    emit({ type: "failed", elapsedMs: elapsed(), failure: { code: "PROCESSING_FAILED", message: "Set voice clarity above zero or enable noise removal before creating a preview. No decoded source audio was published.", action: "effects" } });
     return;
   }
 
@@ -130,18 +127,10 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
     }
     const samples = decodeFloatWav(decoded);
     if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
-    let enhanced = samples;
-    if (noiseRemoval) {
-      emit({ type: "progress", phase: "Loading experimental speech model", progress: 0.46, elapsedMs: elapsed() });
-      enhanced = await enhanceWithDpdfnet(enhanced, noiseRemoval.parameters.intensity, () => cancelled, (fraction) => {
-        if (!cancelled) emit({ type: "progress", phase: "Removing noise experimentally", progress: Math.max(lastProgress, 0.5 + fraction * (voiceClarity ? 0.35 : 0.43)), elapsedMs: elapsed() });
-      });
-    }
-    if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
-    if (voiceClarity) {
-      emit({ type: "progress", phase: "Applying voice clarity", progress: 0.88, elapsedMs: elapsed() });
-      enhanced = applyVoiceClarity(enhanced, 48_000, voiceClarity.parameters.intensity);
-    }
+    const pipeline = await runSpeechPipeline(samples, parsedStages.data, { signal: activeAbort?.signal, onProgress: (stageId, fraction) => {
+      if (!cancelled) emit({ type: "progress", phase: speechStagePhases[stageId], progress: Math.max(lastProgress, 0.5 + fraction * 0.43), elapsedMs: elapsed() });
+    } });
+    const enhanced = pipeline.samples;
     if (cancelled) return { type: "cancelled", elapsedMs: elapsed() };
     assertEnhancedAudio(samples, enhanced);
     emit({ type: "progress", phase: "Validating enhanced preview audio", progress: 0.94, elapsedMs: elapsed() });

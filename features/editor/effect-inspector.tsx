@@ -10,8 +10,8 @@ import { getStageDeclaration, processingProfileRegistry } from "@/shared/contrac
 export const currentEffectCapabilities: Record<EffectId, CapabilityState> = {
   "noise-removal": { status: "limited", cpuSafe: true, message: "Experimental local noise removal only; this model has not passed the production quality gate." },
   "voice-clarity": { status: "ready", cpuSafe: true, message: "Local presence EQ: 3 kHz, Q 0.8, with gain limited to 0–4 dB. Applied after noise removal when both are enabled." },
-  "loudness-normalization": { status: "unavailable", cpuSafe: false, message: "Loudness normalization is not available until its processing and measurement rules are verified." },
-  "echo-reverb-reduction": { status: "unavailable", cpuSafe: false, message: "Echo/reverb reduction is not available until its local adapter and quality checks are complete." },
+  "loudness-normalization": { status: "ready", cpuSafe: true, message: "Local loudness normalization uses gated integrated loudness measurement and peak-constrained gain. Peak limits may prevent reaching the requested LUFS target." },
+  "echo-reverb-reduction": { status: "limited", cpuSafe: true, message: "Experimental conservative reflection suppression; it cannot fully remove room reverb or echo. Listening quality is not certified." },
 };
 
 function capabilityFor(capabilities: Partial<Record<EffectId, CapabilityState>>, effectId: EffectId) {
@@ -86,7 +86,7 @@ function EffectCard({ stage, index, capability, onToggle, onChange, onReset }: {
         const valueText = formatParameterValue(value, parameter.unit);
         return <div key={parameter.id} className="min-w-56 flex-1"><label htmlFor={inputId} className="text-xs font-medium text-[var(--muted-foreground)]">{title} · {parameter.unit}</label><input id={inputId} type="range" min={parameter.minimum} max={parameter.maximum} step={parameter.step} value={value} disabled={!stage.enabled || unavailable} onChange={(event) => onChange(parameter.id, Number(event.target.value))} className="mt-2 w-full accent-[var(--primary)] disabled:opacity-50" aria-valuetext={valueText} /><output htmlFor={inputId} className="mt-1 block text-sm font-medium">{valueText}</output></div>;
       })}<Button type="button" variant="ghost" size="sm" onClick={onReset}><RotateCcw className="size-4" aria-hidden="true" />Reset</Button></div>
-      {capability.status !== "ready" && <p className="mt-3 text-xs leading-5 text-amber-200" role="status">{capability.message ?? (capability.status === "unavailable" ? "This stage needs a local speech capability before it can be enabled." : "CPU-safe fallback is active for this stage.")}</p>}
+      {(capability.message || capability.status !== "ready") && <p className={`mt-3 text-xs leading-5 ${capability.status === "ready" ? "text-[var(--muted-foreground)]" : "text-amber-200"}`} role="status">{capability.message ?? (capability.status === "unavailable" ? "This stage needs a local speech capability before it can be enabled." : "CPU-safe fallback is active for this stage.")}</p>}
     </div></div>
   </article>;
 }

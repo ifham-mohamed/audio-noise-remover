@@ -14,6 +14,17 @@ const profile = defaultProcessingProfile(media.sourceRef, "audio-0");
 function memoryStore() { let saved: ReturnType<typeof createFinalJob>[] = []; return { load: () => [...saved], save: (jobs: readonly ReturnType<typeof createFinalJob>[]) => { saved = [...jobs]; } }; }
 
 describe("final job contract and coordinator", () => {
+  it("rejects stage regression without changing the last accepted stage", async () => {
+    const coordinator = createFinalJobCoordinator({ store: memoryStore() });
+    const combined = { ...profile, stages: profile.stages.map((stage) => ({ ...stage, enabled: true })) };
+    const job = await coordinator.create({ media, profile: combined });
+    const event = { type: "progress" as const, jobId: job.id, phase: "Processing", progress: 0.2, elapsedMs: 100 };
+    coordinator.consume(job.id, { ...event, sequence: 1, stageId: "noise-removal" });
+    coordinator.consume(job.id, { ...event, sequence: 2, stageId: "voice-clarity" });
+    expect(() => coordinator.consume(job.id, { ...event, sequence: 3, stageId: "noise-removal" })).toThrow(/active enabled stage/);
+    expect(coordinator.get(job.id)).toMatchObject({ sequence: 2, phase: "voice-clarity" });
+    expect(coordinator.consume(job.id, { ...event, sequence: 3, stageId: "loudness-normalization" })).toMatchObject({ sequence: 3, phase: "loudness-normalization" });
+  });
   it("creates a typed queued final attempt and omits disabled profile stages", () => {
     const job = createFinalJob(media, profile, { id: "00000000-0000-4000-8000-000000000001" });
     expect(job).toMatchObject({ kind: "final", state: "queued", id: "00000000-0000-4000-8000-000000000001" });

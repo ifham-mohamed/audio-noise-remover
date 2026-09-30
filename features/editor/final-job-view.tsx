@@ -30,6 +30,9 @@ export function FinalJobView({ id }: { id: string }) {
   if (error && !job) return <section className="mt-8 rounded-[var(--radius-lg)] border border-rose-300/30 bg-[var(--surface-raised)] p-5" role="alert"><h2 className="text-xl font-semibold">Processing status unavailable</h2><p className="mt-3 text-sm leading-6">{error}</p><Link className="mt-4 inline-flex min-h-11 items-center text-sm underline" href="/">Return to the editor</Link></section>;
   if (!job) return <p className="mt-8" role="status">Loading local processing status…</p>;
   const currentJob = job;
+  const hasNoise = job.enabledStages.some((stage) => stage.id === "noise-removal");
+  const clarityOnly = job.enabledStages.length === 1 && job.enabledStages[0]?.id === "voice-clarity";
+  const loudness = job.output?.metrics?.["loudness-normalization"];
   const currentStage = currentJob.enabledStages.find((stage) => stage.id === currentJob.phase);
   const elapsedText = elapsedLabel(elapsed);
   async function cancel() {
@@ -53,7 +56,12 @@ export function FinalJobView({ id }: { id: string }) {
     {job.state === "cancelled" && job.recoveryNotice && <p className="mt-3 text-sm text-amber-200" role="status">{job.recoveryNotice}</p>}
     {job.state === "failed" && job.failure && <div className="mt-4 rounded-md border border-amber-300/40 bg-amber-300/10 p-4"><p className="text-sm">{job.failure.message}</p><p className="mt-2 text-sm">Your original remains unchanged, and no successful output is available.</p><Link href={job.failure.action === "settings" ? "/settings" : job.failure.action === "effects" ? "/#effects" : "/settings#diagnostics"} className="mt-2 inline-flex min-h-11 items-center text-sm underline">{job.failure.action === "settings" ? "Open settings" : job.failure.action === "effects" ? "Review effects" : "Open local diagnostics"}</Link></div>}
     {(job.state === "failed" || job.state === "cancelled") && <FinalRetryAction job={job} />}
-    {job.state === "succeeded" && job.output && job.outputAvailability !== "removed" && <><p className="mt-3 text-sm font-semibold">{job.profile.stages.some((stage) => stage.id === "noise-removal" && stage.enabled) ? "Experimental output validated locally" : "Local voice-clarity output validated"}</p><p className="mt-1 text-xs">{job.profile.stages.some((stage) => stage.id === "noise-removal" && stage.enabled) ? "This DPDFNet-based result is experimental and not production-qualified." : "This output uses the bounded local voice-clarity EQ; listen to confirm it suits your recording."}</p><FinalOutputReview expected={job.output} clarityOnly={!job.profile.stages.some((stage) => stage.id === "noise-removal" && stage.enabled)} /></>}
+    {job.state === "succeeded" && job.output && job.outputAvailability !== "removed" && <>
+      <p className="mt-3 text-sm font-semibold">{hasNoise ? "Experimental output validated locally" : clarityOnly ? "Local voice-clarity output validated" : "Local enhanced output validated"}</p>
+      <p className="mt-1 text-xs">{hasNoise ? "This DPDFNet-based result is experimental and not production-qualified." : clarityOnly ? "This output uses the bounded local voice-clarity EQ; listen to confirm it suits your recording." : "The selected local effects completed. Late-reflection reduction remains experimental when enabled."}</p>
+      {loudness && <p className="mt-3 text-sm" role="status">Loudness stage: {typeof loudness.achievedLufs === "number" ? `${loudness.achievedLufs.toFixed(1)} LUFS` : "not measurable"} · target {loudness.targetLufs} LUFS.{loudness.targetUnmet ? " Peak protection or insufficient measurable audio prevented the requested target." : ""} Later enabled stages may change the final listening level.</p>}
+      <FinalOutputReview expected={job.output} clarityOnly={clarityOnly} dspOnly={!hasNoise} />
+    </>}
     {job.state === "succeeded" && job.outputAvailability === "removed" && <p className="mt-3 text-sm" role="status">Output removed from this device. Its history and safe processing details remain.</p>}
     {job.state === "succeeded" && job.outputAvailability === "removing" && <p className="mt-3 text-sm" role="status">Output cleanup was interrupted; availability is being checked. Retry local cleanup from Settings.</p>}
     <p className="sr-only" role="status" aria-live="polite">{stateLabel(job, currentStage?.label)}</p>
